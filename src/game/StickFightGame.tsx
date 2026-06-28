@@ -1092,15 +1092,16 @@ export function StickFightGame() {
     const y = p.pos.y;
     ctx.save();
     
-    // Scale and translate centered at the stickman's feet position
+    // Scale and translate centered at the stickman's feet position (e.g. Rage Mushroom effect)
     const scale = p.powerupType === "rage" ? 1.25 : 1.0;
     ctx.translate(x, y);
     ctx.scale(scale, scale);
     ctx.translate(-x, -y);
 
-    ctx.shadowColor = p.powerupType === "rage" ? "#ff5722" : "rgba(0, 0, 0, 0.3)";
-    ctx.shadowBlur = p.powerupType === "rage" ? 14 : 8;
-    ctx.shadowOffsetY = 3;
+    // Glowing damage outline / active status indicator
+    ctx.shadowColor = p.powerupType === "rage" ? "#ff5722" : "rgba(0, 0, 0, 0.25)";
+    ctx.shadowBlur = p.powerupType === "rage" ? 14 : 6;
+    ctx.shadowOffsetY = 2;
     ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
     ctx.fillStyle = p.color;
     ctx.lineWidth = 4;
@@ -1112,17 +1113,17 @@ export function StickFightGame() {
     const isJumping = !p.onGround;
     const isSliding = p.slideTimer > 0;
     
-    // Dynamic offsets based on movement
+    // Dynamic offsets based on movement states
     let bodyTilt = 0;
     let yOffset = 0;
     
     if (isSliding) {
-      bodyTilt = -0.4 * p.facing;
-      yOffset = 10;
+      bodyTilt = -0.45 * p.facing;
+      yOffset = 12;
     } else if (isMoving) {
-      bodyTilt = 0.15 * p.facing;
+      bodyTilt = 0.18 * p.facing;
     } else if (isJumping) {
-      bodyTilt = 0.05 * p.facing;
+      bodyTilt = 0.06 * p.facing;
     }
     
     const headR = 10;
@@ -1133,102 +1134,166 @@ export function StickFightGame() {
     const hipX = x;
     const hipY = y - 18 - yOffset;
 
-    // 1. Draw head bandana/ribbon tails first (behind player)
-    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
-    ctx.lineWidth = 2.5;
-    const bandX = headX - p.facing * 8;
-    const bandY = headY + 2;
-    const wave1 = Math.sin(time * 16) * 4;
-    const wave2 = Math.cos(time * 12) * 3;
+    // Define colors based on character classes
+    let armorColor = "#2e7d32"; // Ninja Green
+    let trousersColor = "#1b5e20";
+    let trimColor = "#3e2723";
+    let skinColor = "#ffd8b3";
     
-    ctx.beginPath();
-    ctx.moveTo(bandX, bandY);
-    ctx.quadraticCurveTo(bandX - p.facing * 10 - p.vel.x * 0.02, bandY + wave1, bandX - p.facing * 18 - p.vel.x * 0.03, bandY + 4 + wave2);
-    ctx.stroke();
-    
-    ctx.beginPath();
-    ctx.moveTo(bandX, bandY + 2);
-    ctx.quadraticCurveTo(bandX - p.facing * 8 - p.vel.x * 0.02, bandY + 6 + wave2, bandX - p.facing * 16 - p.vel.x * 0.03, bandY + 10 + wave1);
-    ctx.stroke();
+    if (p.class === "samurai") {
+      armorColor = "#d84315"; // Samurai Crimson Red
+      trousersColor = "#880e4f";
+      trimColor = "#ffd54f"; // Gold Trim
+    } else if (p.class === "warden") {
+      armorColor = "#78909c"; // Warden Slate Iron
+      trousersColor = "#37474f";
+      trimColor = "#37474f";
+    }
 
-    // 2. Draw head
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(headX, headY, headR, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // Draw glowing eyes (or ninja mask cutout)
-    ctx.fillStyle = "#fcfaf2"; // glowing white eyes
-    ctx.beginPath();
-    ctx.arc(headX + p.facing * 3, headY - 1, 1.5, 0, Math.PI * 2);
-    ctx.fill();
+    // 1. Draw head details & helmet based on class
+    ctx.save();
+    if (p.class === "warden") {
+      // Iron Crusader Helmet
+      ctx.fillStyle = p.hitFlash > 0 ? "#fff" : "#90a4ae";
+      ctx.beginPath();
+      ctx.arc(headX, headY, headR + 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : "#455a64";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
 
-    // 3. Draw torso / Gi vest
-    ctx.fillStyle = p.color + "33"; // Semi-transparent body fill
-    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
+      // Eye grill slots
+      ctx.fillStyle = "#212121";
+      ctx.fillRect(headX + (p.facing === 1 ? -2 : -8), headY - 3, 10, 2.5);
+
+      // Gold crest plume
+      ctx.fillStyle = "#ffd54f";
+      ctx.beginPath();
+      ctx.moveTo(headX - 1.5, headY - headR);
+      ctx.lineTo(headX - p.facing * 8, headY - headR - 10);
+      ctx.lineTo(headX + 1.5, headY - headR);
+      ctx.closePath();
+      ctx.fill();
+    } else if (p.class === "samurai") {
+      // Samurai Kabuto Helmet
+      ctx.fillStyle = p.hitFlash > 0 ? "#fff" : "#37474f";
+      ctx.beginPath();
+      ctx.arc(headX, headY, headR + 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : "#212121";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Golden V-horns crest
+      ctx.fillStyle = "#ffd54f";
+      ctx.beginPath();
+      ctx.moveTo(headX, headY - 7);
+      ctx.lineTo(headX + p.facing * 7, headY - 14);
+      ctx.lineTo(headX + p.facing * 2, headY - 7);
+      ctx.closePath();
+      ctx.fill();
+
+      // Black hair queue behind
+      ctx.strokeStyle = "#212121";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(headX - p.facing * 6, headY + 4);
+      ctx.quadraticCurveTo(headX - p.facing * 12, headY + 11, headX - p.facing * 8, headY + 18);
+      ctx.stroke();
+    } else {
+      // Ninja Skin Tone Base
+      ctx.fillStyle = p.hitFlash > 0 ? "#fff" : skinColor;
+      ctx.beginPath();
+      ctx.arc(headX, headY, headR - 1, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ninja Mask cover (Lower half face)
+      ctx.fillStyle = p.hitFlash > 0 ? "#fff" : "#2e7d32";
+      ctx.beginPath();
+      ctx.arc(headX, headY + 1, headR - 1, 0, Math.PI, false);
+      ctx.fill();
+
+      // Spiky ninja black hair
+      ctx.fillStyle = "#212121";
+      ctx.beginPath();
+      ctx.moveTo(headX - 8, headY - 4);
+      ctx.lineTo(headX - 11, headY - 11);
+      ctx.lineTo(headX - 3, headY - 8);
+      ctx.lineTo(headX, headY - 14);
+      ctx.lineTo(headX + 4, headY - 8);
+      ctx.lineTo(headX + 11, headY - 11);
+      ctx.lineTo(headX + 8, headY - 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Flowing green headband tie behind
+      ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : "#2e7d32";
+      ctx.lineWidth = 2.2;
+      const bandX = headX - p.facing * 8;
+      const bandY = headY + 2;
+      const wave1 = Math.sin(time * 16) * 4;
+      const wave2 = Math.cos(time * 12) * 3;
+      ctx.beginPath();
+      ctx.moveTo(bandX, bandY);
+      ctx.quadraticCurveTo(bandX - p.facing * 10 - p.vel.x * 0.02, bandY + wave1, bandX - p.facing * 18 - p.vel.x * 0.03, bandY + 4 + wave2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 2. Draw torso breastplate/clothing
+    ctx.save();
+    ctx.fillStyle = p.hitFlash > 0 ? "#fff" : armorColor;
     ctx.beginPath();
-    ctx.moveTo(headX, headY + headR);
-    ctx.lineTo(shoulderX - 4 * p.facing, shoulderY);
-    ctx.lineTo(hipX - 3 * p.facing, hipY);
-    ctx.lineTo(hipX + 3 * p.facing, hipY);
-    ctx.lineTo(shoulderX + 4 * p.facing, shoulderY);
+    ctx.moveTo(shoulderX - 7 * p.facing, shoulderY);
+    ctx.lineTo(shoulderX + 7 * p.facing, shoulderY);
+    ctx.lineTo(hipX + 5 * p.facing, hipY);
+    ctx.lineTo(hipX - 5 * p.facing, hipY);
     ctx.closePath();
     ctx.fill();
-    
-    // Solid spine / outline
+
+    // Armor trims/outlines
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : trimColor;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(headX, headY + headR);
-    ctx.lineTo(hipX, hipY);
+    ctx.moveTo(shoulderX - 7 * p.facing, shoulderY);
+    ctx.lineTo(shoulderX + 7 * p.facing, shoulderY);
+    ctx.lineTo(hipX + 5 * p.facing, hipY);
+    ctx.lineTo(hipX - 5 * p.facing, hipY);
+    ctx.closePath();
     ctx.stroke();
-    
-    // Belt sash at the hip
-    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : (p.id === 0 ? "#1b5e20" : "#b71c1c"); // contrasting darker belt
-    ctx.lineWidth = 3;
+
+    // Belt Sash
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : (p.class === "samurai" ? "#ffd54f" : "#3e2723");
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.moveTo(hipX - 6, hipY);
     ctx.lineTo(hipX + 6, hipY);
     ctx.stroke();
-    // Belt tails
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.moveTo(hipX, hipY);
-    ctx.lineTo(hipX - p.facing * 4 - p.vel.x * 0.01, hipY + 8);
-    ctx.moveTo(hipX - 2, hipY);
-    ctx.lineTo(hipX - 2 - p.facing * 6 - p.vel.x * 0.01, hipY + 12);
-    ctx.stroke();
+    ctx.restore();
 
-    // Reset standard line settings
-    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
-    ctx.lineWidth = 4;
-
-    // 4. Draw legs with jointed knees!
+    // 3. Draw Legs with clothed thickness and boots
     const t = time * 12;
     let foot1X = x, foot1Y = y;
     let foot2X = x, foot2Y = y;
     
     if (isSliding) {
-      // Extended front sliding leg
       foot1X = x + p.facing * 32;
       foot1Y = y;
-      // Bent back leg
       foot2X = x - p.facing * 12;
       foot2Y = y - 4;
     } else if (isJumping) {
-      // Split legs in flight
       const jumpProgress = Math.min(1, Math.max(-1, p.vel.y / JUMP_V));
       foot1X = x - p.facing * 12 + p.vel.x * 0.05;
       foot1Y = y - 4 + jumpProgress * 6;
       foot2X = x + p.facing * 6 + p.vel.x * 0.03;
       foot2Y = y - 12 - jumpProgress * 4;
     } else if (isMoving) {
-      // Cycle run legs
       const cycle = Math.sin(t);
       foot1X = x + cycle * 18;
       foot1Y = y - Math.max(0, -cycle * 6);
       foot2X = x - cycle * 18;
       foot2Y = y - Math.max(0, cycle * 6);
     } else {
-      // Idle standing
       foot1X = x - 6;
       foot1Y = y;
       foot2X = x + 6;
@@ -1238,20 +1303,31 @@ export function StickFightGame() {
     // Draw Leg 1 (Hip -> Knee -> Foot)
     const mid1X = (hipX + foot1X) / 2;
     const mid1Y = (hipY + foot1Y) / 2;
-    // Bend knee forward when running/jumping
     const knee1X = mid1X + (isMoving || isJumping ? p.facing * 5 : 2);
     const knee1Y = mid1Y - 2;
     
+    ctx.save();
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : trousersColor;
+    ctx.lineCap = "round";
+    // Thigh
+    ctx.lineWidth = 8;
     ctx.beginPath();
-    ctx.moveTo(hipX, hipY);
+    ctx.moveTo(hipX - 2 * p.facing, hipY);
     ctx.lineTo(knee1X, knee1Y);
-    ctx.lineTo(foot1X, foot1Y);
     ctx.stroke();
-    // Draw Foot 1 (small circle for boot)
-    ctx.fillStyle = ctx.strokeStyle;
+    // Shin
+    ctx.lineWidth = 6.5;
     ctx.beginPath();
-    ctx.arc(foot1X, foot1Y, 3, 0, Math.PI * 2);
+    ctx.moveTo(knee1X, knee1Y);
+    ctx.lineTo(foot1X, foot1Y - 2);
+    ctx.stroke();
+    
+    // Draw Boot 1
+    ctx.fillStyle = p.hitFlash > 0 ? "#fff" : "#3e2723";
+    ctx.beginPath();
+    ctx.arc(foot1X, foot1Y - 1, 4.5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
 
     // Draw Leg 2 (Hip -> Knee -> Foot)
     const mid2X = (hipX + foot2X) / 2;
@@ -1259,23 +1335,35 @@ export function StickFightGame() {
     const knee2X = mid2X + (isMoving ? -p.facing * 4 : -2);
     const knee2Y = mid2Y - 2;
     
+    ctx.save();
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : trousersColor;
+    ctx.lineCap = "round";
+    // Thigh
+    ctx.lineWidth = 8;
     ctx.beginPath();
-    ctx.moveTo(hipX, hipY);
+    ctx.moveTo(hipX + 2 * p.facing, hipY);
     ctx.lineTo(knee2X, knee2Y);
-    ctx.lineTo(foot2X, foot2Y);
     ctx.stroke();
-    // Draw Foot 2
+    // Shin
+    ctx.lineWidth = 6.5;
     ctx.beginPath();
-    ctx.arc(foot2X, foot2Y, 3, 0, Math.PI * 2);
+    ctx.moveTo(knee2X, knee2Y);
+    ctx.lineTo(foot2X, foot2Y - 2);
+    ctx.stroke();
+    
+    // Draw Boot 2
+    ctx.fillStyle = p.hitFlash > 0 ? "#fff" : "#3e2723";
+    ctx.beginPath();
+    ctx.arc(foot2X, foot2Y - 1, 4.5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
 
-    // 5. Draw arms (attack swing or standard movement)
+    // 4. Draw Arms (Sleeves & Skin)
     const armT = p.attackTimer > 0 ? (1 - p.attackTimer / 0.22) : 0;
-    let armAngle = 0; // Point straight forward horizontally when idle
+    let armAngle = 0;
     
     if (p.attackTimer > 0) {
       if (p.weapon.kind === "katana") {
-        // Beautiful 3-Hit Combo slash angles starting and ending at 0
         const startVal = 0;
         let peakVal = -Math.PI * 0.9;
         let slashVal = Math.PI * 0.1;
@@ -1303,18 +1391,15 @@ export function StickFightGame() {
         const swing = Math.sin(armT * Math.PI) * 0.6;
         armAngle = swing * p.facing;
       } else {
-        // Gun firing recoil kickback (starts at 0, kicks up, returns to 0)
         const kick = Math.sin(armT * Math.PI) * 0.4;
         armAngle = -kick * p.facing;
       }
     }
     
-    // Hand target position
     let handX = x + Math.cos(armAngle) * 22 * p.facing;
     let handY = shoulderY + Math.sin(armAngle) * 22;
     
     if (p.attackTimer === 0 && p.weapon.kind === "fists") {
-      // Idle relaxed arms
       handX = shoulderX + 4 * p.facing;
       handY = shoulderY + 16;
     }
@@ -1322,40 +1407,60 @@ export function StickFightGame() {
     // Draw Main Arm (Shoulder -> Elbow -> Hand)
     const midArmX = (shoulderX + handX) / 2;
     const midArmY = (shoulderY + handY) / 2;
-    // Bend elbow slightly downwards
     const elbowX = midArmX - p.facing * 3;
     const elbowY = midArmY + 3;
     
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : armorColor;
+    // Shoulder to elbow (Sleeve)
+    ctx.lineWidth = 7;
     ctx.beginPath();
     ctx.moveTo(shoulderX, shoulderY);
     ctx.lineTo(elbowX, elbowY);
+    ctx.stroke();
+    
+    // Elbow to Hand (Skin tone rolled sleeve)
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : skinColor;
+    ctx.lineWidth = 5.5;
+    ctx.beginPath();
+    ctx.moveTo(elbowX, elbowY);
     ctx.lineTo(handX, handY);
     ctx.stroke();
-    // Draw Hand (small circle)
-    ctx.beginPath();
-    ctx.arc(handX, handY, 2.5, 0, Math.PI * 2);
-    ctx.fill();
 
-    // Draw Off Arm (Shoulder -> Hand) - slightly behind
+    // Hand circle
+    ctx.fillStyle = p.hitFlash > 0 ? "#fff" : skinColor;
+    ctx.beginPath();
+    ctx.arc(handX, handY, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Draw Off Arm (Behind upper body)
     ctx.save();
-    ctx.globalAlpha = 0.6;
-    ctx.lineWidth = 3.5;
-    let offHandX = shoulderX - 12 * p.facing;
-    let offHandY = shoulderY + 12;
+    ctx.globalAlpha = 0.75;
+    ctx.lineCap = "round";
+    let offHandX = shoulderX - 10 * p.facing;
+    let offHandY = shoulderY + 14;
     
     if (p.weapon.kind !== "fists") {
-      // Hold weapon with both hands! Place off hand close to weapon hilt
       offHandX = handX - p.facing * 8;
       offHandY = handY + 2;
     }
     
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : armorColor;
+    ctx.lineWidth = 6.5;
     ctx.beginPath();
     ctx.moveTo(shoulderX, shoulderY);
     ctx.lineTo(offHandX, offHandY);
     ctx.stroke();
+    
+    ctx.fillStyle = p.hitFlash > 0 ? "#fff" : skinColor;
+    ctx.beginPath();
+    ctx.arc(offHandX, offHandY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
 
-    // Wind sweep slash trail for katana
+    // Wind sweep slash trail for katana combo
     if (p.weapon.kind === "katana" && p.attackTimer > 0 && armT >= 0.2 && armT <= 0.8) {
       ctx.save();
       ctx.lineCap = "round";
@@ -1372,13 +1477,13 @@ export function StickFightGame() {
       }
       const a2 = armAngle;
       
-      let outerColor = "rgba(119, 255, 255, 0.4)"; // Step 0: Cyan
+      let outerColor = "rgba(119, 255, 255, 0.4)";
       let innerColor = "rgba(230, 240, 255, 0.7)";
       if (p.comboStep === 1) {
-        outerColor = "rgba(76, 175, 80, 0.4)"; // Step 1: Green
+        outerColor = "rgba(76, 175, 80, 0.4)";
         innerColor = "rgba(230, 255, 230, 0.7)";
       } else if (p.comboStep === 2) {
-        outerColor = "rgba(216, 67, 21, 0.5)"; // Step 2: Fiery Orange Finisher
+        outerColor = "rgba(216, 67, 21, 0.5)";
         innerColor = "rgba(255, 230, 200, 0.8)";
       }
       
@@ -1636,6 +1741,48 @@ export function StickFightGame() {
       ctx.fillStyle = v;
       ctx.fillRect(0, 0, W, H);
     }
+
+    // Beautiful foreground trees framing the screen (Left & Right) for deep forest aesthetic
+    ctx.save();
+    ctx.fillStyle = "#0c180e"; // Dark forest silhouette
+    ctx.strokeStyle = "#08100a";
+    ctx.lineWidth = 3.5;
+    
+    // Left tree trunk & root flare
+    ctx.beginPath();
+    ctx.moveTo(-20, H);
+    ctx.lineTo(-20, 0);
+    ctx.quadraticCurveTo(35, 120, 25, 0);
+    ctx.lineTo(-20, 0);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Left tree branches & leafy foliage
+    ctx.fillStyle = "#08100a";
+    ctx.beginPath();
+    ctx.arc(30, 100, 45, 0, Math.PI * 2);
+    ctx.arc(65, 45, 55, 0, Math.PI * 2);
+    ctx.arc(100, 120, 35, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Right tree trunk
+    ctx.fillStyle = "#0c180e";
+    ctx.beginPath();
+    ctx.moveTo(W + 20, H);
+    ctx.lineTo(W + 20, 0);
+    ctx.quadraticCurveTo(W - 35, 120, W - 25, 0);
+    ctx.lineTo(W + 20, 0);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Right tree foliage
+    ctx.fillStyle = "#08100a";
+    ctx.beginPath();
+    ctx.arc(W - 30, 90, 50, 0, Math.PI * 2);
+    ctx.arc(W - 70, 40, 48, 0, Math.PI * 2);
+    ctx.arc(W - 105, 110, 36, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
 
     // platforms (mossy rock blocks)
     for (const pf of s.platforms) {
