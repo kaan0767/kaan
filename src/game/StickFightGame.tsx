@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 type Vec = { x: number; y: number };
-type WeaponKind = "fists" | "katana" | "pistol" | "shotgun" | "rocket";
+type WeaponKind = "fists" | "katana" | "pistol" | "shotgun" | "rocket" | "spear" | "mace";
+type PlayerClass = "ninja" | "samurai" | "warden";
 
 interface Weapon {
   kind: WeaponKind;
@@ -32,6 +33,17 @@ interface Player {
   wins: number;
   invuln: number;
   swingDir: 1 | -1;
+  comboStep: number;
+  comboTimer: number;
+  // Expansion fields:
+  class: PlayerClass;
+  stamina: number; // 0..100
+  stunTimer: number;
+  blocking: boolean;
+  powerupType: "rage" | "shield" | null;
+  powerupTimer: number;
+  maxHp: number;
+  speedMultiplier: number;
 }
 
 interface Bullet {
@@ -51,6 +63,13 @@ interface Pickup {
   bob: number;
 }
 
+interface Powerup {
+  pos: Vec;
+  vel: Vec;
+  kind: "healing" | "rage" | "shield";
+  bob: number;
+}
+
 interface Particle {
   pos: Vec;
   vel: Vec;
@@ -59,7 +78,7 @@ interface Particle {
   color: string;
   size: number;
   gravity?: boolean;
-  type?: "leaf" | "splinter" | "dust" | "spark" | "blood";
+  type?: "leaf" | "splinter" | "dust" | "spark" | "blood" | "star"; // Added star for stun
   rotSpeed?: number;
 }
 
@@ -81,6 +100,8 @@ const WEAPON_DEFS: Record<WeaponKind, { name: string; ammo: number; color: strin
   pistol:  { name: "PISTOL",          ammo: 12, color: "#8d6e63" },
   shotgun: { name: "SHOTGUN",         ammo: 6,  color: "#5d4037" },
   rocket:  { name: "ROCKET LAUNCHER", ammo: 3,  color: "#3e2723" },
+  spear:   { name: "SPEAR",           ammo: -1, color: "#90a4ae" },
+  mace:    { name: "STONE MACE",      ammo: -1, color: "#78909c" },
 };
 
 function rand(a: number, b: number) { return a + Math.random() * (b - a); }
@@ -89,6 +110,11 @@ export function StickFightGame() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [started, setStarted] = useState(false);
   const [scoreTick, setScoreTick] = useState(0);
+  
+  const [charSelectActive, setCharSelectActive] = useState(true);
+  const [p1Class, setP1Class] = useState<PlayerClass>("ninja");
+  const [p2Class, setP2Class] = useState<PlayerClass>("ninja");
+  const [mode, setMode] = useState<"pvp" | "vs_ai" | "training">("pvp");
 
   // Persistent game state in a ref so React doesn't re-render every frame
   const stateRef = useRef({
@@ -97,6 +123,7 @@ export function StickFightGame() {
     pickups: [] as Pickup[],
     particles: [] as Particle[],
     platforms: [] as Platform[],
+    powerups: [] as Powerup[],
     keys: new Set<string>(),
     keysPressed: new Set<string>(),
     shake: 0,
@@ -106,6 +133,13 @@ export function StickFightGame() {
     roundOver: false,
     roundOverTimer: 0,
     winnerText: "",
+    // Expansion properties:
+    gameMode: "pvp" as "pvp" | "vs_ai" | "training",
+    roundWins: [0, 0] as [number, number],
+    currentRound: 1,
+    p1SelectedClass: "ninja" as PlayerClass,
+    p2SelectedClass: "ninja" as PlayerClass,
+    characterSelectActive: true,
   });
 
   // Init level
@@ -113,11 +147,19 @@ export function StickFightGame() {
     const s = stateRef.current;
     s.bullets = [];
     s.particles = [];
+    s.powerups = [];
+    s.targetTimeScale = 1;
+    s.timeScale = 1;
+    s.bulletTimeActive = [false, false];
+    s.keys.clear();
+    s.keysPressed.clear();
     s.pickups = [
-      { pos: { x: 200, y: 380 }, kind: "katana", bob: 0 },
-      { pos: { x: 1080, y: 380 }, kind: "pistol", bob: 1 },
-      { pos: { x: 640, y: 200 }, kind: "shotgun", bob: 2 },
-      { pos: { x: 640, y: 400 }, kind: "rocket", bob: 3 },
+      { pos: { x: 180, y: 380 }, kind: "katana", bob: 0 },
+      { pos: { x: 1100, y: 380 }, kind: "pistol", bob: 1 },
+      { pos: { x: 380, y: 200 }, kind: "spear", bob: 2 },
+      { pos: { x: 900, y: 200 }, kind: "mace", bob: 3 },
+      { pos: { x: 640, y: 200 }, kind: "shotgun", bob: 4 },
+      { pos: { x: 640, y: 400 }, kind: "rocket", bob: 5 },
     ];
     s.platforms = [
       { x: 0, y: H - 60, w: W, h: 60 }, // floor
@@ -128,42 +170,64 @@ export function StickFightGame() {
       { x: 1060, y: 280, w: 140, h: 18 },
     ];
     s.players = [
-      makePlayer(0, 200, H - 200, "#2e7d32", "rgba(46, 125, 50, 0.2)"),
-      makePlayer(1, W - 230, H - 200, "#d84315", "rgba(216, 67, 21, 0.2)"),
+      makePlayer(0, 200, H - 200, "#2e7d32", "rgba(46, 125, 50, 0.2)", s.p1SelectedClass),
+      makePlayer(1, W - 230, H - 200, "#d84315", "rgba(216, 67, 21, 0.2)", s.p2SelectedClass),
     ];
-    // Preserve wins
-    if (stateRef.current.players.length === 2 && stateRef.current.players[0].wins != null) {
-      s.players[0].wins = stateRef.current.players[0].wins;
-      s.players[1].wins = stateRef.current.players[1].wins;
-    }
+    
+    // Preserve match round wins
+    s.players[0].wins = s.roundWins[0];
+    s.players[1].wins = s.roundWins[1];
+    
     s.roundOver = false;
     s.roundOverTimer = 0;
     s.winnerText = "";
   };
 
-  const makePlayer = (id: 0 | 1, x: number, y: number, color: string, glow: string): Player => ({
-    id,
-    pos: { x, y },
-    vel: { x: 0, y: 0 },
-    w: 22, h: 60,
-    facing: id === 0 ? 1 : -1,
-    onGround: false,
-    jumps: 2,
-    dashCd: 0,
-    slideTimer: 0,
-    hp: 100,
-    energy: 100,
-    weapon: { kind: "fists", ammo: -1, cooldown: 0 },
-    attackTimer: 0,
-    hitFlash: 0,
-    color, glow,
-    wins: 0,
-    invuln: 0.5,
-    swingDir: 1,
-  });
+  const makePlayer = (id: 0 | 1, x: number, y: number, color: string, glow: string, pClass: PlayerClass): Player => {
+    let maxHp = 100;
+    let speedMultiplier = 1.0;
+    if (pClass === "warden") {
+      maxHp = 125;
+      speedMultiplier = 0.9;
+    } else if (pClass === "ninja") {
+      speedMultiplier = 1.05;
+    }
+    
+    return {
+      id,
+      pos: { x, y },
+      vel: { x: 0, y: 0 },
+      w: 22, h: 60,
+      facing: id === 0 ? 1 : -1,
+      onGround: false,
+      jumps: 2,
+      dashCd: 0,
+      slideTimer: 0,
+      hp: maxHp,
+      energy: 100,
+      weapon: { kind: "fists", ammo: -1, cooldown: 0 },
+      attackTimer: 0,
+      hitFlash: 0,
+      color, glow,
+      wins: 0,
+      invuln: 0.5,
+      swingDir: 1,
+      comboStep: 0,
+      comboTimer: 0,
+      // Expansion fields
+      class: pClass,
+      stamina: 100,
+      stunTimer: 0,
+      blocking: false,
+      powerupType: null,
+      powerupTimer: 0,
+      maxHp,
+      speedMultiplier,
+    };
+  };
 
   useEffect(() => {
-    if (!started) return;
+    if (!started || charSelectActive) return;
     initRound();
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
@@ -203,7 +267,7 @@ export function StickFightGame() {
       window.removeEventListener("keyup", ku);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started]);
+  }, [started, charSelectActive]);
 
   function controls(p: Player) {
     const s = stateRef.current;
@@ -254,49 +318,70 @@ export function StickFightGame() {
 
   function fire(p: Player) {
     const s = stateRef.current;
-    if (p.weapon.cooldown > 0) return;
+    if (p.weapon.cooldown > 0 || p.stunTimer > 0) return;
     const muzzleX = p.pos.x + p.facing * 26;
     const muzzleY = p.pos.y - p.h * 0.45;
     switch (p.weapon.kind) {
       case "fists": {
         p.weapon.cooldown = 0.35;
         p.attackTimer = 0.18;
-        // melee hit
         const other = s.players[1 - p.id];
         const dx = other.pos.x - p.pos.x;
         const dy = other.pos.y - p.pos.y;
         if (Math.abs(dx) < 60 && Math.abs(dy) < 50 && Math.sign(dx) === p.facing) {
-          damage(other, 8, p.facing * 350, -200);
+          damage(other, 8, p.facing * 350, -200, p);
         }
         break;
       }
       case "katana": {
-        p.weapon.cooldown = 0.32;
+        if (p.comboTimer > 0) {
+          p.comboStep = (p.comboStep + 1) % 3;
+        } else {
+          p.comboStep = 0;
+        }
+        p.comboTimer = 0.6;
+        
+        p.weapon.cooldown = p.comboStep === 2 ? 0.45 : 0.28;
         p.attackTimer = 0.22;
-        p.swingDir = p.swingDir === 1 ? -1 : 1;
+        
         const other = s.players[1 - p.id];
         const dx = other.pos.x - p.pos.x;
         const dy = other.pos.y - p.pos.y;
-        if (Math.abs(dx) < 90 && Math.abs(dy) < 60 && Math.sign(dx) === p.facing) {
-          damage(other, 28, p.facing * 500, -300);
-          spawnParticles(other.pos.x, other.pos.y - 30, 10, "#90a4ae", 400, { type: "dust" });
-          spawnParticles(other.pos.x, other.pos.y - 30, 10, "#8d6e63", 300, { type: "splinter" });
+        
+        const isFinisher = p.comboStep === 2;
+        const dmg = isFinisher ? 35 : 22;
+        const kx = p.facing * (isFinisher ? 700 : 450);
+        const ky = isFinisher ? 150 : -200;
+        
+        const rangeX = isFinisher ? 100 : 85;
+        const rangeY = isFinisher ? 70 : 55;
+        
+        if (Math.abs(dx) < rangeX && Math.abs(dy) < rangeY && Math.sign(dx) === p.facing) {
+          damage(other, dmg, kx, ky, p);
+          if (isFinisher) {
+            s.shake = Math.max(s.shake, 12);
+            spawnParticles(other.pos.x, other.pos.y - 30, 15, "#ff9800", 450, { type: "leaf" });
+            spawnParticles(other.pos.x, other.pos.y - 30, 10, "#8d6e63", 350, { type: "splinter" });
+          } else {
+            spawnParticles(other.pos.x, other.pos.y - 30, 8, "#90a4ae", 400, { type: "dust" });
+            spawnParticles(other.pos.x, other.pos.y - 30, 8, p.color, 300, { type: "leaf" });
+          }
         }
-        spawnParticles(muzzleX, muzzleY, 8, p.color, 250, { type: "leaf" });
+        spawnParticles(muzzleX, muzzleY, 8, p.comboStep === 2 ? "#ff9800" : (p.comboStep === 1 ? "#4caf50" : p.color), 250, { type: "leaf" });
         break;
       }
       case "pistol": {
         if (p.weapon.ammo <= 0) { p.weapon = { kind: "fists", ammo: -1, cooldown: 0.2 }; return; }
         p.weapon.cooldown = 0.22;
         p.weapon.ammo--;
-        p.vel.x -= p.facing * 60; // recoil
+        p.vel.x -= p.facing * 100;
         s.bullets.push({
           pos: { x: muzzleX, y: muzzleY },
-          vel: { x: p.facing * 1400, y: rand(-20, 20) },
-          owner: p.id, life: 1.2, dmg: 18, trail: [], color: "#a1887f",
+          vel: { x: p.facing * 1300, y: rand(-50, 50) },
+          owner: p.id, life: 0.8, dmg: 16, trail: [], color: "#bcaaa4",
         });
-        s.shake = Math.max(s.shake, 4);
-        spawnParticles(muzzleX, muzzleY, 4, "#8d6e63", 220, { type: "splinter", gravity: false });
+        s.shake = Math.max(s.shake, 3);
+        spawnParticles(muzzleX, muzzleY, 4, "#8d6e63", 250, { type: "splinter", gravity: false });
         break;
       }
       case "shotgun": {
@@ -330,35 +415,366 @@ export function StickFightGame() {
         spawnParticles(muzzleX, muzzleY, 8, "#d84315", 300, { type: "splinter", gravity: false });
         break;
       }
+      case "spear": {
+        p.weapon.cooldown = 0.24;
+        p.attackTimer = 0.15;
+        const other = s.players[1 - p.id];
+        const dx = other.pos.x - p.pos.x;
+        const dy = other.pos.y - p.pos.y;
+        if (Math.abs(dx) < 125 && Math.abs(dy) < 30 && Math.sign(dx) === p.facing) {
+          damage(other, 18, p.facing * 300, -100, p);
+          spawnParticles(other.pos.x, other.pos.y - 30, 6, "#90a4ae", 350, { type: "splinter" });
+        }
+        spawnParticles(muzzleX, muzzleY, 3, "#90a4ae", 150, { type: "dust" });
+        break;
+      }
+      case "mace": {
+        p.weapon.cooldown = 0.70;
+        p.attackTimer = 0.35;
+        const other = s.players[1 - p.id];
+        const dx = other.pos.x - p.pos.x;
+        const dy = other.pos.y - p.pos.y;
+        if (Math.abs(dx) < 95 && Math.abs(dy) < 80 && Math.sign(dx) === p.facing) {
+          damage(other, 45, p.facing * 800, -350, p);
+          s.shake = Math.max(s.shake, 16);
+          spawnParticles(other.pos.x, other.pos.y - 30, 16, "#78909c", 400, { type: "splinter" });
+          spawnParticles(other.pos.x, other.pos.y - 30, 10, "#a1887f", 300, { type: "dust" });
+        }
+        spawnParticles(muzzleX, muzzleY, 8, "#78909c", 200, { type: "dust" });
+        break;
+      }
     }
   }
 
-  function damage(p: Player, dmg: number, kx: number, ky: number) {
+  function damage(p: Player, dmg: number, kx: number, ky: number, attacker?: Player) {
     if (p.invuln > 0) return;
+    const s = stateRef.current;
+    
+    // Scale damage if attacker has rage active
+    if (attacker && attacker.powerupType === "rage") {
+      dmg = Math.round(dmg * 1.5);
+    }
+    
+    // Shield bubble powerup negates one damage instance entirely
+    if (p.powerupType === "shield") {
+      p.powerupType = null;
+      p.powerupTimer = 0;
+      s.shake = Math.max(s.shake, 6);
+      spawnParticles(p.pos.x, p.pos.y - 30, 12, "#78909c", 250, { type: "spark" });
+      return;
+    }
+    
+    // Direction check for active block
+    const dmgFromLeft = kx > 0;
+    const facingLeft = p.facing === -1;
+    const facingDamageSource = (dmgFromLeft && !facingLeft) || (!dmgFromLeft && facingLeft);
+    
+    if (p.blocking && facingDamageSource) {
+      const blockedDmg = Math.round(dmg * 0.2); // 80% reduction
+      p.stamina = Math.max(0, p.stamina - dmg * 0.8);
+      p.hp -= blockedDmg;
+      p.vel.x += kx * 0.15; // heavily reduced knockback
+      p.vel.y += ky * 0.15;
+      p.hitFlash = 0.15;
+      s.shake = Math.max(s.shake, 3);
+      spawnParticles(p.pos.x, p.pos.y - 30, 8, "#b0bec5", 200, { type: "spark" });
+      
+      if (p.stamina <= 0) {
+        p.blocking = false;
+        p.stunTimer = 0.8;
+        spawnParticles(p.pos.x, p.pos.y - 40, 10, "#ffeb3b", 300, { type: "star" });
+      }
+      return;
+    }
+    
+    // Normal damage application
     p.hp -= dmg;
     p.vel.x += kx;
     p.vel.y += ky;
     p.hitFlash = 0.25;
-    const s = stateRef.current;
     s.shake = Math.max(s.shake, Math.min(18, dmg * 0.6));
     spawnParticles(p.pos.x, p.pos.y - 30, Math.min(15, dmg / 2), "#8d6e63", 300, { type: "splinter" });
     spawnParticles(p.pos.x, p.pos.y - 30, Math.min(15, dmg / 2), p.color, 300, { type: "leaf" });
+    
     if (p.hp <= 0 && !s.roundOver) {
       s.roundOver = true;
       s.roundOverTimer = 2.5;
       s.targetTimeScale = 0.15;
       const winner = s.players[1 - p.id];
-      winner.wins++;
-      s.winnerText = `PLAYER ${winner.id + 1} WINS`;
+      s.roundWins[winner.id]++;
+      
+      if (s.roundWins[winner.id] >= 3) {
+        s.winnerText = `PLAYER ${winner.id + 1} WINS THE MATCH!`;
+        s.roundWins = [0, 0];
+        s.currentRound = 1;
+      } else {
+        s.winnerText = `PLAYER ${winner.id + 1} WINS ROUND ${s.currentRound}`;
+        s.currentRound++;
+      }
+      
       setScoreTick(t => t + 1);
       // big explosion: wood splinters and leaves
       spawnParticles(p.pos.x, p.pos.y - 30, 40, "#8d6e63", 500, { type: "splinter" });
       spawnParticles(p.pos.x, p.pos.y - 30, 40, p.color, 400, { type: "leaf" });
     }
   }
+  function updateAI(bot: Player, dtReal: number) {
+    const s = stateRef.current;
+    if (s.roundOver || bot.hp <= 0 || bot.stunTimer > 0) return;
+    
+    const target = s.players[0]; // Player 1 is target
+    if (target.hp <= 0) return;
+    
+    // Clear all bot keys
+    s.keys.delete("ArrowLeft");
+    s.keys.delete("ArrowRight");
+    s.keys.delete("ArrowUp");
+    s.keys.delete("ArrowDown");
+    s.keys.delete(",");
+    s.keys.delete(".");
+    s.keys.delete("/");
+    s.keysPressed.delete("ArrowUp");
+    s.keysPressed.delete("ArrowDown");
+    s.keysPressed.delete(".");
+    s.keysPressed.delete("/");
+    
+    // Target coordinate selection (default to target player)
+    let targetX = target.pos.x;
+    let targetY = target.pos.y;
+    
+    // Seek items if unarmed
+    let seekItem = bot.weapon.kind === "fists";
+    
+    // Seek healing scroll if low health
+    const healingScroll = s.powerups.find(po => po.kind === "healing");
+    if (bot.hp < 75 && healingScroll) {
+      seekItem = true;
+    }
+    
+    if (seekItem) {
+      let closestDist = 9999;
+      let bestX = -1;
+      let bestY = -1;
+      
+      for (const pk of s.pickups) {
+        const dx = pk.pos.x - bot.pos.x;
+        const dy = pk.pos.y - bot.pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < closestDist) {
+          closestDist = dist;
+          bestX = pk.pos.x;
+          bestY = pk.pos.y;
+        }
+      }
+      
+      for (const po of s.powerups) {
+        const dx = po.pos.x - bot.pos.x;
+        const dy = po.pos.y - bot.pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const weight = (bot.hp < 75 && po.kind === "healing") ? 0.5 : 1.0;
+        if (dist * weight < closestDist) {
+          closestDist = dist * weight;
+          bestX = po.pos.x;
+          bestY = po.pos.y;
+        }
+      }
+      
+      if (bestX !== -1) {
+        targetX = bestX;
+        targetY = bestY;
+      }
+    }
+    
+    // Calculated direct distance to target
+    const dx = targetX - bot.pos.x;
+    const dy = targetY - bot.pos.y;
+    const directDist = Math.sqrt(dx * dx + dy * dy);
+    
+    // Ranged weapon distance logic (Kiting)
+    const isRanged = bot.weapon.kind === "pistol" || bot.weapon.kind === "shotgun" || bot.weapon.kind === "rocket";
+    let moveDir = 0; // -1: left, 1: right, 0: stop
+    
+    if (!seekItem && isRanged) {
+      // The bot has a gun and is fighting the player.
+      // It wants to maintain a distance of 200 to 380 pixels.
+      if (directDist < 170) {
+        // Player is too close! Run away in the opposite direction!
+        moveDir = dx > 0 ? -1 : 1;
+      } else if (directDist > 380) {
+        // Player is too far. Run towards them.
+        moveDir = dx > 0 ? 1 : -1;
+      } else {
+        // Perfect distance. Stand still to shoot.
+        moveDir = 0;
+      }
+    } else {
+      // Melee weapon or seeking item. Run directly towards target.
+      if (Math.abs(dx) > 15) {
+        moveDir = dx > 0 ? 1 : -1;
+      }
+    }
+    
+    // Apply movement keys based on moveDir
+    if (moveDir === -1) s.keys.add("ArrowLeft");
+    else if (moveDir === 1) s.keys.add("ArrowRight");
+    
+    // Platform pathfinding: If climbing up to reach target, run to the edge of platforms blocking direct vertical ascent
+    let finalTargetX = targetX;
+    if (dy < -40 && Math.abs(dx) < 250) {
+      for (const pf of s.platforms) {
+        // Is there a platform vertically between the bot and the target?
+        if (pf.y < bot.pos.y - 10 && pf.y > targetY - 20) {
+          // And is the bot horizontally underneath this platform?
+          if (bot.pos.x > pf.x - 15 && bot.pos.x < pf.x + pf.w + 15) {
+            // Run to the nearest side edge instead of standing underneath
+            const toLeft = Math.abs(bot.pos.x - pf.x);
+            const toRight = Math.abs(bot.pos.x - (pf.x + pf.w));
+            if (toLeft < toRight) {
+              finalTargetX = pf.x - 45;
+            } else {
+              finalTargetX = pf.x + pf.w + 45;
+            }
+            
+            // Override movement direction to run to the platform edge
+            const pathDx = finalTargetX - bot.pos.x;
+            if (Math.abs(pathDx) > 15) {
+              s.keys.delete("ArrowLeft");
+              s.keys.delete("ArrowRight");
+              if (pathDx < 0) s.keys.add("ArrowLeft");
+              else s.keys.add("ArrowRight");
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    // Smart jumping & climbing triggers
+    const nextX = bot.pos.x + Math.sign(dx) * 35;
+    let wallAhead = false;
+    for (const pf of s.platforms) {
+      if (nextX > pf.x && nextX < pf.x + pf.w && bot.pos.y > pf.y && bot.pos.y < pf.y + pf.h + 80) {
+        wallAhead = true;
+        break;
+      }
+    }
+    
+    const wantsToJumpUp = dy < -45 && Math.abs(finalTargetX - bot.pos.x) < 220;
+    const tryingToMove = s.keys.has("ArrowLeft") || s.keys.has("ArrowRight");
+    const isStuck = tryingToMove && Math.abs(bot.vel.x) < 25;
+    
+    // Jump to climb or clear obstacles
+    if ((wallAhead || wantsToJumpUp || isStuck) && bot.onGround && Math.random() < 0.22) {
+      s.keysPressed.add("ArrowUp");
+      s.keys.add("ArrowUp");
+    }
+    
+    // Double jump if target is very high up or during aerial combat
+    if (!bot.onGround && bot.vel.y > -50 && dy < -90 && Math.random() < 0.12) {
+      s.keysPressed.add("ArrowUp");
+      s.keys.add("ArrowUp");
+    }
+    
+    // Tactical Combat Dashing (uses 30 stamina)
+    // Dash to initiate melee if player is at medium range, or dash backward if low health
+    if (bot.stamina >= 50 && bot.dashCd <= 0 && Math.random() < 0.04) {
+      if (!seekItem && !isRanged && directDist > 140 && directDist < 260) {
+        // Melee initiation dash! (Dash forward)
+        s.keysPressed.add("/");
+        s.keys.add("/");
+      } else if (bot.hp < 40 && directDist < 120) {
+        // Defensive retreat dash! Run away and dash backwards
+        s.keys.delete("ArrowLeft");
+        s.keys.delete("ArrowRight");
+        if (dx > 0) {
+          s.keys.add("ArrowLeft");
+        } else {
+          s.keys.add("ArrowRight");
+        }
+        s.keysPressed.add("/");
+        s.keys.add("/");
+      }
+    }
+    
+    // Projectile detection & evasion/blocking
+    const incomingBullet = s.bullets.find(b => 
+      b.owner === 0 && 
+      Math.sign(b.vel.x) === Math.sign(bot.pos.x - b.pos.x) && 
+      Math.abs(b.pos.x - bot.pos.x) < 280 && 
+      Math.abs(b.pos.y - bot.pos.y) < 70
+    );
+    
+    if (incomingBullet && Math.random() < 0.70) {
+      // Bullet time reflex trigger! Hold Zen Focus (,) to slow time
+      s.keys.add(",");
+      
+      const reaction = Math.random();
+      if (reaction < 0.45) {
+        // Block the shot!
+        s.keys.add("ArrowDown");
+      } else if (reaction < 0.85 && bot.onGround) {
+        // Jump over the bullet!
+        s.keysPressed.add("ArrowUp");
+        s.keys.add("ArrowUp");
+      } else if (bot.stamina >= 30) {
+        // Dash away!
+        s.keysPressed.add("/");
+        s.keys.add("/");
+      }
+    }
+    
+    // Attack ranges and weapon action
+    let attackRange = 55;
+    if (bot.weapon.kind === "katana") attackRange = 85;
+    else if (bot.weapon.kind === "spear") attackRange = 120;
+    else if (bot.weapon.kind === "mace") attackRange = 90;
+    else if (isRanged) attackRange = 450;
+    
+    const facingTarget = Math.sign(dx) === bot.facing;
+    const closeEnough = Math.abs(dx) < attackRange && Math.abs(dy) < 80;
+    
+    if (closeEnough && facingTarget) {
+      // Quick combo timing: Katana combo chaining attacks fast
+      const rate = bot.weapon.kind === "katana" ? 0.35 : (isRanged ? 0.08 : 0.20);
+      if (Math.random() < rate) {
+        s.keysPressed.add(".");
+        s.keys.add(".");
+      }
+    }
+    
+    // React block to player's melee swings
+    const targetAttacking = target.attackTimer > 0 && Math.abs(dx) < 120 && Math.abs(dy) < 80;
+    if (targetAttacking && Math.random() < 0.85) {
+      s.keys.add("ArrowDown");
+    }
+  }
+
+  // To support state variables dynamically
+  let powerupSpawnTimer = 0;
 
   function step(dtReal: number) {
     const s = stateRef.current;
+    
+    // Environmental wind/weather particles (leaf drifts from top-right to bottom-left)
+    if (Math.random() < 0.15) {
+      s.particles.push({
+        pos: { x: rand(0, W + 150), y: -20 },
+        vel: { x: rand(-120, -40), y: rand(50, 110) },
+        life: rand(7.0, 11.0),
+        maxLife: 11.0,
+        color: Math.random() < 0.5 ? "#2e7d32" : "#ff9800", // green or orange
+        size: rand(2.2, 4.5),
+        gravity: false,
+        type: "leaf",
+        rotSpeed: rand(-0.25, 0.25)
+      });
+    }
+    
+    // AI update if VS Bot mode
+    if (s.gameMode === "vs_ai" && s.players[1]) {
+      updateAI(s.players[1], dtReal);
+    }
+
     const explodeRocket = (bx: number, by: number, ownerId: number) => {
       s.shake = Math.max(s.shake, 24);
       spawnParticles(bx, by, 25, "#ff5722", 450, { type: "leaf" });
@@ -374,10 +790,16 @@ export function StickFightGame() {
           const dmg = Math.round(55 * force);
           const kx = Math.sign(dx) * 750 * force;
           const ky = -450 * force;
-          damage(p, dmg, kx, ky);
+          damage(p, dmg, kx, ky, s.players[ownerId]);
         }
       }
     };
+    // bullet time targetTimeScale
+    const anySlow = s.bulletTimeActive.some(x => x);
+    if (!s.roundOver) {
+      s.targetTimeScale = anySlow ? 0.2 : 1.0;
+    }
+
     // smooth time scale
     s.timeScale += (s.targetTimeScale - s.timeScale) * Math.min(1, dtReal * 8);
     const dt = dtReal * s.timeScale;
@@ -391,6 +813,71 @@ export function StickFightGame() {
       if (s.roundOverTimer <= 0) {
         s.targetTimeScale = 1;
         initRound();
+      }
+    }
+
+    // Spawn falling powerups every 15 seconds (only when round is active)
+    if (!s.roundOver) {
+      powerupSpawnTimer += dtReal;
+      if (powerupSpawnTimer >= 15) {
+        powerupSpawnTimer = 0;
+        const kinds: Array<"healing" | "rage" | "shield"> = ["healing", "rage", "shield"];
+        const randKind = kinds[Math.floor(Math.random() * kinds.length)];
+        s.powerups.push({
+          pos: { x: rand(150, W - 150), y: -20 },
+          vel: { x: rand(-40, 40), y: 150 },
+          kind: randKind,
+          bob: 0
+        });
+      }
+    }
+
+    // Update powerups
+    for (let i = s.powerups.length - 1; i >= 0; i--) {
+      const po = s.powerups[i];
+      po.pos.x += po.vel.x * dt;
+      po.pos.y += po.vel.y * dt;
+      po.vel.y += 400 * dt; // gravity
+      po.bob += dtReal * 3;
+      
+      // platform landing
+      let onPlat = false;
+      for (const pf of s.platforms) {
+        if (po.pos.x > pf.x && po.pos.x < pf.x + pf.w && po.pos.y > pf.y - 4 && po.pos.y < pf.y + pf.h) {
+          po.pos.y = pf.y;
+          po.vel.y = 0;
+          po.vel.x = 0;
+          onPlat = true;
+          break;
+        }
+      }
+      if (!onPlat && po.pos.y > H - 60) {
+        po.pos.y = H - 60;
+        po.vel.y = 0;
+        po.vel.x = 0;
+      }
+      
+      // player pickup check
+      for (const p of s.players) {
+        if (p.hp <= 0) continue;
+        const dx = po.pos.x - p.pos.x;
+        const dy = po.pos.y - (p.pos.y - 30);
+        if (dx * dx + dy * dy < 38 * 38) {
+          if (po.kind === "healing") {
+            p.hp = Math.min(p.maxHp, p.hp + 35);
+            spawnParticles(po.pos.x, po.pos.y, 12, "#4caf50", 250, { type: "leaf" });
+          } else if (po.kind === "rage") {
+            p.powerupType = "rage";
+            p.powerupTimer = 6.0;
+            spawnParticles(po.pos.x, po.pos.y, 15, "#d84315", 300, { type: "leaf" });
+          } else if (po.kind === "shield") {
+            p.powerupType = "shield";
+            p.powerupTimer = 999;
+            spawnParticles(po.pos.x, po.pos.y, 12, "#00acc1", 250, { type: "spark" });
+          }
+          s.powerups.splice(i, 1);
+          break;
+        }
       }
     }
 
@@ -408,37 +895,67 @@ export function StickFightGame() {
     for (const p of s.players) {
       if (s.roundOver && p.hp <= 0) continue;
       const c = controls(p);
+      
+      // decrement stun & powerup timers
+      p.stunTimer = Math.max(0, p.stunTimer - dtReal);
+      if (p.powerupType && p.powerupType !== "shield") {
+        p.powerupTimer -= dtReal;
+        if (p.powerupTimer <= 0) p.powerupType = null;
+      }
 
       // bullet time toggle (hold)
-      const wantSlow = c.slowmoHeld && p.energy > 5;
+      const isStunned = p.stunTimer > 0;
+      const wantSlow = !isStunned && c.slowmoHeld && p.energy > 5;
       s.bulletTimeActive[p.id] = wantSlow;
       if (wantSlow) p.energy = Math.max(0, p.energy - 40 * dtReal);
-      else p.energy = Math.min(100, p.energy + 12 * dtReal);
-
-      // horizontal input — player keeps near-normal speed during slowmo
+      else p.energy = Math.min(100, p.energy + 12 * dtReal);      // horizontal input
       const speedBoost = s.timeScale < 0.9 ? (1 / s.timeScale) * 0.8 : 1;
       const ax = (c.left ? -1 : 0) + (c.right ? 1 : 0);
-      if (ax !== 0) { p.facing = ax > 0 ? 1 : -1; }
-      const targetVx = ax * MOVE_SPEED * speedBoost;
+      if (ax !== 0 && !isStunned && !p.blocking) { p.facing = ax > 0 ? 1 : -1; }
+      
+      let targetVx = ax * MOVE_SPEED * p.speedMultiplier * speedBoost;
+      if (p.blocking || isStunned) targetVx = 0;
+      
       const accel = p.onGround ? 18 : 8;
       p.vel.x += (targetVx - p.vel.x) * Math.min(1, dt * accel);
 
+      // crouch block & stamina regenerator
+      p.blocking = false;
+      if (!isStunned) {
+        const wantBlock = c.down && p.onGround && p.attackTimer === 0 && p.stamina > 0 && Math.abs(p.vel.x) < 50;
+        if (wantBlock) {
+          p.blocking = true;
+          p.stamina = Math.max(0, p.stamina - 45 * dtReal);
+          if (p.stamina <= 0) {
+            p.blocking = false;
+            p.stunTimer = 0.8;
+            spawnParticles(p.pos.x, p.pos.y - p.h - 5, 8, "#ffeb3b", 100, { type: "star", gravity: false });
+          }
+        } else {
+          p.stamina = Math.min(100, p.stamina + (p.class === "samurai" ? 38.5 : 35) * dtReal);
+        }
+      }
+
       // jump
-      if (c.jumpPressed && p.jumps > 0) {
-        p.vel.y = -JUMP_V;
+      const jumpV = p.class === "ninja" ? JUMP_V * 1.05 : JUMP_V;
+      if (c.jumpPressed && p.jumps > 0 && !isStunned && !p.blocking) {
+        p.vel.y = -jumpV;
         p.jumps--;
         spawnParticles(p.pos.x, p.pos.y, 8, "#a1887f", 200, { type: "dust" });
       }
+      
       // dash
-      if (c.dashPressed && p.dashCd <= 0) {
+      if (c.dashPressed && p.dashCd <= 0 && p.stamina >= 30 && !isStunned && !p.blocking) {
         p.vel.x = p.facing * DASH_V;
         p.vel.y = Math.min(p.vel.y, -100);
-        p.dashCd = 0.6;
+        p.dashCd = p.class === "ninja" ? 0.51 : 0.6;
+        p.stamina = Math.max(0, p.stamina - 30);
         p.invuln = Math.max(p.invuln, 0.15);
         spawnParticles(p.pos.x, p.pos.y - 20, 14, p.id === 0 ? "#4caf50" : "#ff9800", 350, { type: "leaf" });
       }
+      
       // slide
-      if (c.down && p.onGround && Math.abs(p.vel.x) > 200) {
+      if (c.down && p.onGround && Math.abs(p.vel.x) > 200 && !isStunned && !p.blocking) {
         p.slideTimer = 0.4;
       }
       p.slideTimer = Math.max(0, p.slideTimer - dtReal);
@@ -447,12 +964,13 @@ export function StickFightGame() {
       p.vel.y += GRAVITY * dt;
 
       // attack
-      if (c.attackPressed) fire(p);
+      if (c.attackPressed && !isStunned && !p.blocking) fire(p);
       p.weapon.cooldown = Math.max(0, p.weapon.cooldown - dtReal);
       p.attackTimer = Math.max(0, p.attackTimer - dtReal);
       p.dashCd = Math.max(0, p.dashCd - dtReal);
       p.hitFlash = Math.max(0, p.hitFlash - dtReal);
       p.invuln = Math.max(0, p.invuln - dtReal);
+      p.comboTimer = Math.max(0, p.comboTimer - dtReal);
 
       // integrate
       p.pos.x += p.vel.x * dt;
@@ -565,46 +1083,202 @@ export function StickFightGame() {
     const x = p.pos.x;
     const y = p.pos.y;
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetY = 2;
-    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
-    ctx.lineWidth = 4.5;
-    ctx.lineCap = "round";
+    
+    // Scale and translate centered at the stickman's feet position
+    const scale = p.powerupType === "rage" ? 1.25 : 1.0;
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.translate(-x, -y);
 
-    const headR = 11;
-    const headY = y - 50;
-    // head
+    ctx.shadowColor = p.powerupType === "rage" ? "#ff5722" : "rgba(0, 0, 0, 0.3)";
+    ctx.shadowBlur = p.powerupType === "rage" ? 14 : 8;
+    ctx.shadowOffsetY = 3;
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
+    ctx.fillStyle = p.color;
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // Set up poses
+    const isMoving = Math.abs(p.vel.x) > 50 && p.onGround;
+    const isJumping = !p.onGround;
+    const isSliding = p.slideTimer > 0;
+    
+    // Dynamic offsets based on movement
+    let bodyTilt = 0;
+    let yOffset = 0;
+    
+    if (isSliding) {
+      bodyTilt = -0.4 * p.facing;
+      yOffset = 10;
+    } else if (isMoving) {
+      bodyTilt = 0.15 * p.facing;
+    } else if (isJumping) {
+      bodyTilt = 0.05 * p.facing;
+    }
+    
+    const headR = 10;
+    const headX = x + Math.sin(bodyTilt) * 15;
+    const headY = y - 48 - yOffset;
+    const shoulderX = x + Math.sin(bodyTilt) * 8;
+    const shoulderY = headY + headR + 4;
+    const hipX = x;
+    const hipY = y - 18 - yOffset;
+
+    // 1. Draw head bandana/ribbon tails first (behind player)
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
+    ctx.lineWidth = 2.5;
+    const bandX = headX - p.facing * 8;
+    const bandY = headY + 2;
+    const wave1 = Math.sin(time * 16) * 4;
+    const wave2 = Math.cos(time * 12) * 3;
+    
     ctx.beginPath();
-    ctx.arc(x, headY, headR, 0, Math.PI * 2);
+    ctx.moveTo(bandX, bandY);
+    ctx.quadraticCurveTo(bandX - p.facing * 10 - p.vel.x * 0.02, bandY + wave1, bandX - p.facing * 18 - p.vel.x * 0.03, bandY + 4 + wave2);
     ctx.stroke();
-    // body
+    
     ctx.beginPath();
-    ctx.moveTo(x, headY + headR);
-    ctx.lineTo(x, y - 18);
+    ctx.moveTo(bandX, bandY + 2);
+    ctx.quadraticCurveTo(bandX - p.facing * 8 - p.vel.x * 0.02, bandY + 6 + wave2, bandX - p.facing * 16 - p.vel.x * 0.03, bandY + 10 + wave1);
     ctx.stroke();
-    // legs (animated)
-    const moving = Math.abs(p.vel.x) > 50 && p.onGround;
+
+    // 2. Draw head
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(headX, headY, headR, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Draw glowing eyes (or ninja mask cutout)
+    ctx.fillStyle = "#fcfaf2"; // glowing white eyes
+    ctx.beginPath();
+    ctx.arc(headX + p.facing * 3, headY - 1, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Draw torso / Gi vest
+    ctx.fillStyle = p.color + "33"; // Semi-transparent body fill
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
+    ctx.beginPath();
+    ctx.moveTo(headX, headY + headR);
+    ctx.lineTo(shoulderX - 4 * p.facing, shoulderY);
+    ctx.lineTo(hipX - 3 * p.facing, hipY);
+    ctx.lineTo(hipX + 3 * p.facing, hipY);
+    ctx.lineTo(shoulderX + 4 * p.facing, shoulderY);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Solid spine / outline
+    ctx.beginPath();
+    ctx.moveTo(headX, headY + headR);
+    ctx.lineTo(hipX, hipY);
+    ctx.stroke();
+    
+    // Belt sash at the hip
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : (p.id === 0 ? "#1b5e20" : "#b71c1c"); // contrasting darker belt
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(hipX - 6, hipY);
+    ctx.lineTo(hipX + 6, hipY);
+    ctx.stroke();
+    // Belt tails
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(hipX, hipY);
+    ctx.lineTo(hipX - p.facing * 4 - p.vel.x * 0.01, hipY + 8);
+    ctx.moveTo(hipX - 2, hipY);
+    ctx.lineTo(hipX - 2 - p.facing * 6 - p.vel.x * 0.01, hipY + 12);
+    ctx.stroke();
+
+    // Reset standard line settings
+    ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
+    ctx.lineWidth = 4;
+
+    // 4. Draw legs with jointed knees!
     const t = time * 12;
-    const legA = moving ? Math.sin(t) * 0.8 : 0.3;
-    const legB = moving ? -Math.sin(t) * 0.8 : -0.3;
-    const slideOffset = p.slideTimer > 0 ? 8 : 0;
+    let foot1X = x, foot1Y = y;
+    let foot2X = x, foot2Y = y;
+    
+    if (isSliding) {
+      // Extended front sliding leg
+      foot1X = x + p.facing * 32;
+      foot1Y = y;
+      // Bent back leg
+      foot2X = x - p.facing * 12;
+      foot2Y = y - 4;
+    } else if (isJumping) {
+      // Split legs in flight
+      const jumpProgress = Math.min(1, Math.max(-1, p.vel.y / JUMP_V));
+      foot1X = x - p.facing * 12 + p.vel.x * 0.05;
+      foot1Y = y - 4 + jumpProgress * 6;
+      foot2X = x + p.facing * 6 + p.vel.x * 0.03;
+      foot2Y = y - 12 - jumpProgress * 4;
+    } else if (isMoving) {
+      // Cycle run legs
+      const cycle = Math.sin(t);
+      foot1X = x + cycle * 18;
+      foot1Y = y - Math.max(0, -cycle * 6);
+      foot2X = x - cycle * 18;
+      foot2Y = y - Math.max(0, cycle * 6);
+    } else {
+      // Idle standing
+      foot1X = x - 6;
+      foot1Y = y;
+      foot2X = x + 6;
+      foot2Y = y;
+    }
+
+    // Draw Leg 1 (Hip -> Knee -> Foot)
+    const mid1X = (hipX + foot1X) / 2;
+    const mid1Y = (hipY + foot1Y) / 2;
+    // Bend knee forward when running/jumping
+    const knee1X = mid1X + (isMoving || isJumping ? p.facing * 5 : 2);
+    const knee1Y = mid1Y - 2;
+    
     ctx.beginPath();
-    ctx.moveTo(x, y - 18);
-    ctx.lineTo(x + Math.sin(legA) * 14, y - slideOffset);
-    ctx.moveTo(x, y - 18);
-    ctx.lineTo(x + Math.sin(legB) * 14, y - slideOffset);
+    ctx.moveTo(hipX, hipY);
+    ctx.lineTo(knee1X, knee1Y);
+    ctx.lineTo(foot1X, foot1Y);
     ctx.stroke();
-    // arms (attack swing)
+    // Draw Foot 1 (small circle for boot)
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.beginPath();
+    ctx.arc(foot1X, foot1Y, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw Leg 2 (Hip -> Knee -> Foot)
+    const mid2X = (hipX + foot2X) / 2;
+    const mid2Y = (hipY + foot2Y) / 2;
+    const knee2X = mid2X + (isMoving ? -p.facing * 4 : -2);
+    const knee2Y = mid2Y - 2;
+    
+    ctx.beginPath();
+    ctx.moveTo(hipX, hipY);
+    ctx.lineTo(knee2X, knee2Y);
+    ctx.lineTo(foot2X, foot2Y);
+    ctx.stroke();
+    // Draw Foot 2
+    ctx.beginPath();
+    ctx.arc(foot2X, foot2Y, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 5. Draw arms (attack swing or standard movement)
     const armT = p.attackTimer > 0 ? (1 - p.attackTimer / 0.22) : 0;
     let armAngle = 0; // Point straight forward horizontally when idle
     
     if (p.attackTimer > 0) {
       if (p.weapon.kind === "katana") {
-        // Beautiful horizontal slash starting and ending straight forward (0)
+        // Beautiful 3-Hit Combo slash angles starting and ending at 0
         const startVal = 0;
-        const peakVal = p.swingDir === 1 ? -Math.PI * 0.9 : -Math.PI * 0.05;
-        const slashVal = p.swingDir === 1 ? Math.PI * 0.1 : -Math.PI * 0.85;
+        let peakVal = -Math.PI * 0.9;
+        let slashVal = Math.PI * 0.1;
+        
+        if (p.comboStep === 1) {
+          peakVal = -Math.PI * 0.05;
+          slashVal = -Math.PI * 0.85;
+        } else if (p.comboStep === 2) {
+          peakVal = -Math.PI * 0.6;
+          slashVal = Math.PI * 0.45;
+        }
         
         if (armT < 0.2) {
           const nt = armT / 0.2;
@@ -627,49 +1301,102 @@ export function StickFightGame() {
       }
     }
     
-    const handX = x + Math.cos(armAngle) * 22 * p.facing;
-    const handY = headY + headR + 10 + Math.sin(armAngle) * 22;
+    // Hand target position
+    let handX = x + Math.cos(armAngle) * 22 * p.facing;
+    let handY = shoulderY + Math.sin(armAngle) * 22;
+    
+    if (p.attackTimer === 0 && p.weapon.kind === "fists") {
+      // Idle relaxed arms
+      handX = shoulderX + 4 * p.facing;
+      handY = shoulderY + 16;
+    }
+
+    // Draw Main Arm (Shoulder -> Elbow -> Hand)
+    const midArmX = (shoulderX + handX) / 2;
+    const midArmY = (shoulderY + handY) / 2;
+    // Bend elbow slightly downwards
+    const elbowX = midArmX - p.facing * 3;
+    const elbowY = midArmY + 3;
+    
     ctx.beginPath();
-    ctx.moveTo(x, headY + headR + 6);
+    ctx.moveTo(shoulderX, shoulderY);
+    ctx.lineTo(elbowX, elbowY);
     ctx.lineTo(handX, handY);
-    // off arm
-    ctx.moveTo(x, headY + headR + 6);
-    ctx.lineTo(x - 14 * p.facing, headY + headR + 22);
     ctx.stroke();
+    // Draw Hand (small circle)
+    ctx.beginPath();
+    ctx.arc(handX, handY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw Off Arm (Shoulder -> Hand) - slightly behind
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.lineWidth = 3.5;
+    let offHandX = shoulderX - 12 * p.facing;
+    let offHandY = shoulderY + 12;
+    
+    if (p.weapon.kind !== "fists") {
+      // Hold weapon with both hands! Place off hand close to weapon hilt
+      offHandX = handX - p.facing * 8;
+      offHandY = handY + 2;
+    }
+    
+    ctx.beginPath();
+    ctx.moveTo(shoulderX, shoulderY);
+    ctx.lineTo(offHandX, offHandY);
+    ctx.stroke();
+    ctx.restore();
 
     // Wind sweep slash trail for katana
     if (p.weapon.kind === "katana" && p.attackTimer > 0 && armT >= 0.2 && armT <= 0.8) {
       ctx.save();
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.35)"; // Soft white wind sweep
-      ctx.lineWidth = 6;
       ctx.lineCap = "round";
-      ctx.beginPath();
       
       const shoulderX = x;
       const shoulderY = headY + headR + 6;
       const radius = 86;
       
-      const a1 = p.swingDir === 1 ? -Math.PI * 0.9 : -Math.PI * 0.05;
+      let a1 = -Math.PI * 0.9;
+      if (p.comboStep === 1) {
+        a1 = -Math.PI * 0.05;
+      } else if (p.comboStep === 2) {
+        a1 = -Math.PI * 0.6;
+      }
       const a2 = armAngle;
       
+      let outerColor = "rgba(119, 255, 255, 0.4)"; // Step 0: Cyan
+      let innerColor = "rgba(230, 240, 255, 0.7)";
+      if (p.comboStep === 1) {
+        outerColor = "rgba(76, 175, 80, 0.4)"; // Step 1: Green
+        innerColor = "rgba(230, 255, 230, 0.7)";
+      } else if (p.comboStep === 2) {
+        outerColor = "rgba(216, 67, 21, 0.5)"; // Step 2: Fiery Orange Finisher
+        innerColor = "rgba(255, 230, 200, 0.8)";
+      }
+      
+      const cc = p.comboStep === 1;
+      
+      ctx.strokeStyle = outerColor;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
       if (p.facing === 1) {
-        ctx.arc(shoulderX, shoulderY, radius, a1, a2, p.swingDir === -1);
+        ctx.arc(shoulderX, shoulderY, radius, a1, a2, cc);
       } else {
         const mirrorA1 = Math.PI - a1;
         const mirrorA2 = Math.PI - a2;
-        ctx.arc(shoulderX, shoulderY, radius, mirrorA1, mirrorA2, p.swingDir === 1);
+        ctx.arc(shoulderX, shoulderY, radius, mirrorA1, mirrorA2, !cc);
       }
       ctx.stroke();
       
-      ctx.strokeStyle = "rgba(230, 240, 255, 0.7)"; // Inner brighter wind line
+      ctx.strokeStyle = innerColor;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       if (p.facing === 1) {
-        ctx.arc(shoulderX, shoulderY, radius, a1, a2, p.swingDir === -1);
+        ctx.arc(shoulderX, shoulderY, radius, a1, a2, cc);
       } else {
         const mirrorA1 = Math.PI - a1;
         const mirrorA2 = Math.PI - a2;
-        ctx.arc(shoulderX, shoulderY, radius, mirrorA1, mirrorA2, p.swingDir === 1);
+        ctx.arc(shoulderX, shoulderY, radius, mirrorA1, mirrorA2, !cc);
       }
       ctx.stroke();
       ctx.restore();
@@ -677,6 +1404,52 @@ export function StickFightGame() {
 
     // weapon
     drawWeapon(ctx, p, handX, handY, armAngle);
+
+    // Blocking barrier visual effect
+    if (p.blocking) {
+      ctx.save();
+      ctx.strokeStyle = p.color;
+      ctx.fillStyle = p.color + "22";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      const arcCenterX = handX + p.facing * 8;
+      const arcCenterY = handY;
+      if (p.facing === 1) {
+        ctx.arc(arcCenterX, arcCenterY, 20, -Math.PI / 2, Math.PI / 2, false);
+      } else {
+        ctx.arc(arcCenterX, arcCenterY, 20, -Math.PI / 2, Math.PI / 2, true);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Shield bubble powerup overlay
+    if (p.powerupType === "shield") {
+      ctx.save();
+      ctx.strokeStyle = "rgba(0, 172, 193, 0.75)";
+      ctx.fillStyle = "rgba(0, 172, 193, 0.12)";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(headX - p.facing * 3, headY + 25, 34, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+
+    // Stun dizzy stars
+    if (p.stunTimer > 0) {
+      ctx.save();
+      ctx.fillStyle = "#ffeb3b";
+      const starCount = 3;
+      for (let i = 0; i < starCount; i++) {
+        const starAngle = time * 7 + (i * Math.PI * 2) / starCount;
+        const sx = headX + Math.cos(starAngle) * 14;
+        const sy = headY - 14 + Math.sin(starAngle) * 3;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
 
     ctx.restore();
   }
@@ -722,6 +1495,36 @@ export function StickFightGame() {
         ctx.fillRect(15, 6, 5, 8);
         ctx.fillStyle = "#37474f"; // Iron ring muzzle
         ctx.fillRect(35, -8, 4, 16);
+        break;
+      case "spear":
+        ctx.strokeStyle = "#8d6e63"; // wooden shaft
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(-20, 0);
+        ctx.lineTo(60, 0);
+        ctx.stroke();
+        
+        ctx.fillStyle = "#b0bec5"; // steel head
+        ctx.beginPath();
+        ctx.moveTo(60, -5);
+        ctx.lineTo(76, 0);
+        ctx.lineTo(60, 5);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      case "mace":
+        ctx.strokeStyle = "#8d6e63"; // handle
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(-10, 0);
+        ctx.lineTo(40, 0);
+        ctx.stroke();
+        
+        ctx.fillStyle = "#455a64"; // heavy stone block
+        ctx.fillRect(25, -12, 24, 24);
+        ctx.fillStyle = "#37474f";
+        ctx.fillRect(31, -8, 4, 16);
+        ctx.fillRect(41, -8, 4, 16);
         break;
     }
     ctx.restore();
@@ -918,7 +1721,54 @@ export function StickFightGame() {
         ctx.fillRect(-9, -4.5, 18, 7.5); // Launcher tube
         ctx.fillRect(-4, 3, 2, 3); // Grip
         ctx.fillRect(3, 3, 2, 2.5); // Second handle
+      } else if (pk.kind === "spear") {
+        ctx.beginPath();
+        ctx.moveTo(-10, 8);
+        ctx.lineTo(8, -8); // shaft
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(6, -6);
+        ctx.lineTo(11, -11);
+        ctx.lineTo(9, -4);
+        ctx.closePath();
+        ctx.fill();
+      } else if (pk.kind === "mace") {
+        ctx.beginPath();
+        ctx.moveTo(-7, 7);
+        ctx.lineTo(3, -3); // shaft
+        ctx.stroke();
+        ctx.fillRect(2, -8, 8, 8); // head
       }
+      ctx.restore();
+    }
+
+    // powerups (falling/floating scrolls)
+    for (const po of s.powerups) {
+      const yBob = Math.sin(po.bob) * 4;
+      ctx.save();
+      ctx.translate(po.pos.x, po.pos.y + yBob);
+      
+      // glowing aura
+      const auraColor = po.kind === "healing" ? "rgba(76, 175, 80, 0.3)" : (po.kind === "rage" ? "rgba(216, 67, 21, 0.3)" : "rgba(0, 172, 193, 0.3)");
+      ctx.fillStyle = auraColor;
+      ctx.shadowColor = po.kind === "healing" ? "#4caf50" : (po.kind === "rage" ? "#d84315" : "#00acc1");
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.arc(0, 0, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0; // reset
+      
+      // parchment scroll body
+      ctx.fillStyle = "#fcfaf2";
+      ctx.strokeStyle = "#5d4037";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(-12, -6, 24, 12, 4);
+      ctx.fill(); ctx.stroke();
+      
+      // ribbon tie
+      ctx.fillStyle = po.kind === "healing" ? "#4caf50" : (po.kind === "rage" ? "#d84315" : "#00acc1");
+      ctx.fillRect(-3, -7, 6, 14);
       ctx.restore();
     }
 
@@ -982,6 +1832,27 @@ export function StickFightGame() {
         ctx.moveTo(-size * 2, 0);
         ctx.lineTo(size * 2, 0);
         ctx.stroke();
+      } else if (type === "spark") {
+        const rot = Math.atan2(pa.vel.y, pa.vel.x);
+        ctx.translate(pa.pos.x, pa.pos.y);
+        ctx.rotate(rot);
+        ctx.strokeStyle = pa.color;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-size, 0);
+        ctx.lineTo(size, 0);
+        ctx.stroke();
+      } else if (type === "star") {
+        ctx.translate(pa.pos.x, pa.pos.y);
+        ctx.rotate((pa.rotSpeed || 0) * (pa.maxLife - pa.life) * 8);
+        ctx.fillStyle = "#ffeb3b";
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          ctx.lineTo(Math.cos((18 + i * 72) * Math.PI / 180) * size, -Math.sin((18 + i * 72) * Math.PI / 180) * size);
+          ctx.lineTo(Math.cos((54 + i * 72) * Math.PI / 180) * (size / 2), -Math.sin((54 + i * 72) * Math.PI / 180) * (size / 2));
+        }
+        ctx.closePath();
+        ctx.fill();
       } else {
         ctx.beginPath();
         ctx.arc(pa.pos.x, pa.pos.y, size, 0, Math.PI * 2);
@@ -1025,49 +1896,84 @@ export function StickFightGame() {
       const x = isP1 ? 20 : W - 280;
       const y = 20;
       ctx.save();
-      // panel (parchment card style)
+      // panel (parchment card style, taller to fit stamina)
       ctx.fillStyle = "rgba(252, 250, 242, 0.9)";
       ctx.strokeStyle = "#5d4037"; // dark wood
       ctx.lineWidth = 3;
-      ctx.fillRect(x, y, 260, 80);
-      ctx.strokeRect(x + 0.5, y + 0.5, 259, 79);
+      ctx.fillRect(x, y, 260, 94);
+      ctx.strokeRect(x + 0.5, y + 0.5, 259, 93);
       
       // label
       ctx.fillStyle = p.color;
-      ctx.font = "bold 15px sans-serif";
+      ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "left";
       ctx.fillText(`PLAYER ${p.id + 1}`, x + 12, y + 20);
+      
+      // class text
+      ctx.fillStyle = "#8d6e63";
+      ctx.font = "italic bold 9px sans-serif";
+      ctx.fillText(p.class.toUpperCase(), x + 198, y + 11);
+
+      // Round Wins (small leaves next to name)
+      ctx.fillStyle = "#81c784";
+      for (let r = 0; r < p.wins; r++) {
+        ctx.beginPath();
+        ctx.arc(x + 95 + r * 14, y + 16, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
       ctx.fillStyle = "#5d4037";
       ctx.font = "bold 11px sans-serif";
-      ctx.fillText(`WINS ${p.wins}`, x + 200, y + 20);
+      ctx.fillText(`WINS ${p.wins}`, x + 198, y + 22);
       
-      // HP bar
+      // HP bar (scaled dynamically by maxHp)
       ctx.fillStyle = "#d7ccc8";
       ctx.fillRect(x + 12, y + 28, 236, 12);
       ctx.fillStyle = p.hp > 30 ? "#558b2f" : "#c62828"; // Moss green / rust red
-      ctx.fillRect(x + 12, y + 28, 236 * Math.max(0, p.hp) / 100, 12);
+      ctx.fillRect(x + 12, y + 28, 236 * Math.max(0, p.hp) / p.maxHp, 12);
       ctx.strokeStyle = "#5d4037";
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x + 12, y + 28, 236, 12);
       
       // focus energy
       ctx.fillStyle = "#efebe9";
-      ctx.fillRect(x + 12, y + 45, 236, 8);
+      ctx.fillRect(x + 12, y + 45, 236, 7);
       ctx.fillStyle = s.bulletTimeActive[p.id] ? "#f57c00" : "#ffb300"; // focus active vs charge
-      ctx.fillRect(x + 12, y + 45, 236 * p.energy / 100, 8);
+      ctx.fillRect(x + 12, y + 45, 236 * p.energy / 100, 7);
       ctx.strokeStyle = "#5d4037";
-      ctx.strokeRect(x + 12, y + 45, 236, 8);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 12, y + 45, 236, 7);
 
+      // stamina bar
+      ctx.fillStyle = "#efebe9";
+      ctx.fillRect(x + 12, y + 56, 236, 6);
+      ctx.fillStyle = p.stunTimer > 0 ? "#b0bec5" : "#ffd54f"; // stun grey vs gold stamina
+      ctx.fillRect(x + 12, y + 56, 236 * p.stamina / 100, 6);
+      ctx.strokeStyle = "#5d4037";
+      ctx.strokeRect(x + 12, y + 56, 236, 6);
+      
       // weapon
       const def = WEAPON_DEFS[p.weapon.kind];
       ctx.fillStyle = "#5d4037";
-      ctx.font = "bold 12px sans-serif";
-      ctx.fillText(def.name, x + 12, y + 68);
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillText(def.name, x + 12, y + 80);
       if (p.weapon.ammo >= 0) {
         ctx.fillStyle = "#8d6e63";
-        ctx.font = "900 11px sans-serif";
-        ctx.fillText(`AMMO ${p.weapon.ammo}`, x + 180, y + 68);
+        ctx.font = "900 10px sans-serif";
+        ctx.fillText(`AMMO ${p.weapon.ammo}`, x + 180, y + 80);
       }
+
+      // Active power-up indicator
+      let powerupText = "";
+      if (p.powerupType === "rage") powerupText = `RAGE ${p.powerupTimer.toFixed(1)}s`;
+      else if (p.powerupType === "shield") powerupText = "SHIELD ACTIVE";
+      
+      if (powerupText) {
+        ctx.fillStyle = p.powerupType === "rage" ? "#d84315" : "#0097a7";
+        ctx.font = "bold 9px sans-serif";
+        ctx.fillText(powerupText, x + 90, y + 80);
+      }
+
       ctx.restore();
     }
     // time scale indicator
@@ -1087,7 +1993,34 @@ export function StickFightGame() {
   return (
     <div className="relative w-full h-full min-h-screen bg-gradient-to-br from-[#efebe9] to-[#d7ccc8] flex flex-col items-center justify-center p-4">
       {!started ? (
-        <StartScreen onStart={() => setStarted(true)} />
+        <StartScreen onSelectMode={(selectedMode) => {
+          setMode(selectedMode);
+          if (selectedMode === "training") {
+            setP2Class("warden");
+          }
+          setStarted(true);
+          setCharSelectActive(true);
+        }} />
+      ) : charSelectActive ? (
+        <CharacterSelectScreen
+          mode={mode}
+          p1Class={p1Class}
+          p2Class={p2Class}
+          onSelectP1Class={setP1Class}
+          onSelectP2Class={setP2Class}
+          onBack={() => setStarted(false)}
+          onFight={() => {
+            const s = stateRef.current;
+            s.gameMode = mode;
+            s.p1SelectedClass = p1Class;
+            s.p2SelectedClass = p2Class;
+            s.characterSelectActive = false;
+            s.roundWins = [0, 0];
+            s.currentRound = 1;
+            setCharSelectActive(false);
+            initRound();
+          }}
+        />
       ) : (
         <div className="relative">
           <canvas
@@ -1102,7 +2035,9 @@ export function StickFightGame() {
             }}
           />
           <button
-            onClick={() => setStarted(false)}
+            onClick={() => {
+              setCharSelectActive(true);
+            }}
             className="absolute top-4 right-4 px-4 py-2 text-xs font-sans font-bold uppercase tracking-wider rounded-md bg-[#fcfaf2]/90 border-2 border-[#5d4037] text-[#5d4037] hover:bg-[#efebe9] transition-colors shadow-md"
           >
             Leave Woods
@@ -1113,9 +2048,9 @@ export function StickFightGame() {
   );
 }
 
-function StartScreen({ onStart }: { onStart: () => void }) {
+function StartScreen({ onSelectMode }: { onSelectMode: (mode: "pvp" | "vs_ai" | "training") => void }) {
   return (
-    <div className="flex flex-col items-center gap-8 p-8 text-center max-w-4xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md">
+    <div className="flex flex-col items-center gap-6 p-8 text-center max-w-4xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md">
       <div>
         <h1
           className="font-sans font-black text-6xl md:text-7xl tracking-tight"
@@ -1129,8 +2064,32 @@ function StartScreen({ onStart }: { onStart: () => void }) {
           WILDWOOD STRIKE
         </h1>
         <p className="mt-3 text-[#5d4037] font-semibold uppercase tracking-[0.3em] text-xs">
-          Stickman Fight · Zen Focus · Local 2P
+          Stickman Fight · Zen Focus · Local 2P & AI
         </p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-4 w-full justify-center my-2">
+        <button
+          onClick={() => onSelectMode("pvp")}
+          className="px-6 py-3 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#2e7d32] border-b-4 border-[#1b5e20] text-white hover:scale-105 transition-transform"
+          style={{ boxShadow: "0 4px 14px rgba(46, 125, 50, 0.3)" }}
+        >
+          Local 1v1 PVP
+        </button>
+        <button
+          onClick={() => onSelectMode("vs_ai")}
+          className="px-6 py-3 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#d84315] border-b-4 border-[#bf360c] text-white hover:scale-105 transition-transform"
+          style={{ boxShadow: "0 4px 14px rgba(216, 67, 21, 0.3)" }}
+        >
+          Fight Wild Bot (AI)
+        </button>
+        <button
+          onClick={() => onSelectMode("training")}
+          className="px-6 py-3 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#78909c] border-b-4 border-[#546e7a] text-white hover:scale-105 transition-transform"
+          style={{ boxShadow: "0 4px 14px rgba(120, 144, 156, 0.3)" }}
+        >
+          Training Range
+        </button>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 w-full">
@@ -1138,40 +2097,156 @@ function StartScreen({ onStart }: { onStart: () => void }) {
           color="#2e7d32"
           label="PLAYER 1 (FOREST)"
           rows={[
-            ["Move", "A / D"],
+            ["Move / Walk", "A / D"],
             ["Jump / Double", "W"],
-            ["Dash / Leaf Sweep", "Shift / Q"],
+            ["Crouch / Block", "S (Hold on Ground)"],
+            ["Dash / Evade", "Shift / Q (Uses 30 Stamina)"],
             ["Attack / Strike", "F"],
-            ["Zen Focus", "E (hold)"],
+            ["Zen Focus", "E (Hold)"],
           ]}
         />
         <ControlsCard
           color="#d84315"
           label="PLAYER 2 (AUTUMN)"
           rows={[
-            ["Move", "← / →"],
+            ["Move / Walk", "← / →"],
             ["Jump / Double", "↑"],
-            ["Dash / Leaf Sweep", "/"],
+            ["Crouch / Block", "↓ (Hold on Ground)"],
+            ["Dash / Evade", "/ (Uses 30 Stamina)"],
             ["Attack / Strike", "."],
-            ["Zen Focus", ", (hold)"],
+            ["Zen Focus", ", (Hold)"],
           ]}
         />
       </div>
 
-      <button
-        onClick={onStart}
-        className="group relative px-12 py-4 font-sans font-bold text-xl uppercase tracking-[0.2em] text-[#fcfaf2] rounded-md transition-transform hover:scale-105 active:scale-95 border-b-4 border-[#1b5e20]"
-        style={{
-          background: "linear-gradient(90deg, #2e7d32, #d84315)",
-          boxShadow: "0 6px 20px rgba(46, 125, 50, 0.35)",
-        }}
-      >
-        Enter the Woods
-      </button>
-
-      <p className="text-xs text-[#8d6e63] max-w-md">
-        Collect wooden scroll packages containing items. First to lose all energy/HP loses the round. Hold Zen Focus to slow time and dodge projectiles.
+      <p className="text-xs text-[#8d6e63] max-w-lg mt-2">
+        Collect wooden scroll packages containing items. Blocking reduces damage by 80% but drains stamina. Stun stars appear on shield break.
       </p>
+    </div>
+  );
+}
+
+function CharacterSelectScreen({
+  mode,
+  p1Class,
+  p2Class,
+  onSelectP1Class,
+  onSelectP2Class,
+  onBack,
+  onFight,
+}: {
+  mode: "pvp" | "vs_ai" | "training";
+  p1Class: PlayerClass;
+  p2Class: PlayerClass;
+  onSelectP1Class: (c: PlayerClass) => void;
+  onSelectP2Class: (c: PlayerClass) => void;
+  onBack: () => void;
+  onFight: () => void;
+}) {
+  const renderClassBox = (pNum: number, currentClass: PlayerClass, onSelect: (c: PlayerClass) => void) => {
+    const classesList: Array<{ id: PlayerClass; name: string; color: string; desc: string; stats: string[] }> = [
+      {
+        id: "ninja",
+        name: "Leaf Ninja",
+        color: "#2e7d32",
+        desc: "Agile tree-runner. High speed and swift dashes.",
+        stats: ["HP: 100", "Speed: 105%", "Jump Height: 105%", "Dash Cooldown: -15%"],
+      },
+      {
+        id: "samurai",
+        name: "Ember Samurai",
+        color: "#d84315",
+        desc: "Fiery swordmaster. Strong combos and fast stamina recovery.",
+        stats: ["HP: 100", "Stamina Regen: +10%", "Katana damage: +15%", "Stance: Balanced"],
+      },
+      {
+        id: "warden",
+        name: "Stone Warden",
+        color: "#78909c",
+        desc: "Sturdy forest protector. Massive health and passive damage reduction.",
+        stats: ["HP: 125", "Defense: +15% Damage Reduction", "Speed: 90%", "Stance: Heavy Guard"],
+      },
+    ];
+
+    return (
+      <div className="flex flex-col gap-4 bg-[#fcfaf2]/90 border-2 border-[#5d4037] p-5 rounded-xl shadow-md w-full max-w-sm">
+        <h2 className="font-sans font-bold text-lg text-[#5d4037] border-b-2 border-[#d7ccc8] pb-1">
+          PLAYER {pNum} {mode === "vs_ai" && pNum === 2 ? "(BOT)" : ""}
+        </h2>
+        <div className="flex flex-col gap-2">
+          {classesList.map((cl) => {
+            const selected = currentClass === cl.id;
+            return (
+              <button
+                key={cl.id}
+                onClick={() => onSelect(cl.id)}
+                className={`p-3 rounded-lg border text-left transition-all hover:scale-[1.02] ${
+                  selected ? "border-[#5d4037] bg-[#efebe9]" : "border-[#d7ccc8] bg-transparent"
+                }`}
+                style={{ borderLeftWidth: selected ? "6px" : "1px", borderLeftColor: cl.color }}
+              >
+                <div className="font-sans font-bold text-sm" style={{ color: cl.color }}>
+                  {cl.name}
+                </div>
+                <div className="text-xs text-[#8d6e63] mt-0.5 leading-tight">{cl.desc}</div>
+                {selected && (
+                  <ul className="mt-2 grid grid-cols-2 gap-x-2 text-[10px] font-mono text-[#3e2723] bg-[#fcfaf2]/80 p-1.5 rounded border border-[#d7ccc8]">
+                    {cl.stats.map((s, idx) => <li key={idx}>• {s}</li>)}
+                  </ul>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-6 p-6 text-center max-w-4xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md w-full">
+      <div>
+        <h1 className="font-sans font-black text-4xl tracking-tight text-[#5d4037]">
+          SELECT CHARACTER CLASS
+        </h1>
+        <p className="text-[#8d6e63] uppercase tracking-[0.2em] text-[10px] mt-1">
+          Choose your signature stats and archetype
+        </p>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-6 w-full justify-center">
+        {renderClassBox(1, p1Class, onSelectP1Class)}
+        {mode === "training" ? (
+          <div className="flex flex-col gap-4 bg-[#fcfaf2]/90 border-2 border-[#5d4037] p-5 rounded-xl shadow-md w-full max-w-sm justify-center items-center">
+            <h2 className="font-sans font-bold text-lg text-[#5d4037] border-b-2 border-[#d7ccc8] pb-1 w-full text-center">
+              PLAYER 2 (TARGET)
+            </h2>
+            <div className="py-6 text-center">
+              <div className="font-sans font-bold text-lg text-[#78909c]">Stone Warden Dummy</div>
+              <p className="text-xs text-[#8d6e63] max-w-xs mt-2">
+                Training dummies are assigned as Stone Wardens with high HP (+25%) and passive defense to help test mace combos.
+              </p>
+            </div>
+          </div>
+        ) : (
+          renderClassBox(2, p2Class, onSelectP2Class)
+        )}
+      </div>
+
+      <div className="flex gap-4 mt-2">
+        <button
+          onClick={onBack}
+          className="px-6 py-2.5 font-sans font-bold uppercase tracking-wider rounded border-2 border-[#5d4037] text-[#5d4037] hover:bg-[#efebe9] transition-colors"
+        >
+          Back
+        </button>
+        <button
+          onClick={onFight}
+          className="px-8 py-2.5 font-sans font-bold uppercase tracking-wider text-white rounded bg-[#2e7d32] border-b-4 border-[#1b5e20] hover:scale-105 active:scale-95 transition-transform"
+          style={{ boxShadow: "0 4px 12px rgba(46, 125, 50, 0.3)" }}
+        >
+          Enter the forest
+        </button>
+      </div>
     </div>
   );
 }
