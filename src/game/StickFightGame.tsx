@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 type Vec = { x: number; y: number };
-type WeaponKind = "fists" | "katana" | "pistol" | "shotgun";
+type WeaponKind = "fists" | "katana" | "pistol" | "shotgun" | "rocket";
 
 interface Weapon {
   kind: WeaponKind;
@@ -42,6 +42,7 @@ interface Bullet {
   dmg: number;
   trail: Vec[];
   color: string;
+  isRocket?: boolean;
 }
 
 interface Pickup {
@@ -75,10 +76,11 @@ const JUMP_V = 720;
 const DASH_V = 1100;
 
 const WEAPON_DEFS: Record<WeaponKind, { name: string; ammo: number; color: string }> = {
-  fists:   { name: "UNARMED",      ammo: -1, color: "#a1887f" },
-  katana:  { name: "STEEL SWORD",  ammo: -1, color: "#b0bec5" },
-  pistol:  { name: "SLINGSHOT",   ammo: 12, color: "#8d6e63" },
-  shotgun: { name: "HUNTER BOW",   ammo: 6,  color: "#5d4037" },
+  fists:   { name: "FISTS",           ammo: -1, color: "#a1887f" },
+  katana:  { name: "KATANA",          ammo: -1, color: "#b0bec5" },
+  pistol:  { name: "PISTOL",          ammo: 12, color: "#8d6e63" },
+  shotgun: { name: "SHOTGUN",         ammo: 6,  color: "#5d4037" },
+  rocket:  { name: "ROCKET LAUNCHER", ammo: 3,  color: "#3e2723" },
 };
 
 function rand(a: number, b: number) { return a + Math.random() * (b - a); }
@@ -112,9 +114,10 @@ export function StickFightGame() {
     s.bullets = [];
     s.particles = [];
     s.pickups = [
-      { pos: { x: 250, y: 380 }, kind: "katana", bob: 0 },
-      { pos: { x: 1030, y: 380 }, kind: "pistol", bob: 1 },
+      { pos: { x: 200, y: 380 }, kind: "katana", bob: 0 },
+      { pos: { x: 1080, y: 380 }, kind: "pistol", bob: 1 },
       { pos: { x: 640, y: 200 }, kind: "shotgun", bob: 2 },
+      { pos: { x: 640, y: 400 }, kind: "rocket", bob: 3 },
     ];
     s.platforms = [
       { x: 0, y: H - 60, w: W, h: 60 }, // floor
@@ -312,6 +315,21 @@ export function StickFightGame() {
         spawnParticles(muzzleX, muzzleY, 12, "#8d6e63", 350, { type: "splinter", gravity: false });
         break;
       }
+      case "rocket": {
+        if (p.weapon.ammo <= 0) { p.weapon = { kind: "fists", ammo: -1, cooldown: 0.2 }; return; }
+        p.weapon.cooldown = 1.0;
+        p.weapon.ammo--;
+        p.vel.x -= p.facing * 350;
+        s.bullets.push({
+          pos: { x: muzzleX, y: muzzleY },
+          vel: { x: p.facing * 500, y: 0 },
+          owner: p.id, life: 3.0, dmg: 40, trail: [], color: "#ff5722",
+          isRocket: true,
+        });
+        s.shake = Math.max(s.shake, 14);
+        spawnParticles(muzzleX, muzzleY, 8, "#d84315", 300, { type: "splinter", gravity: false });
+        break;
+      }
     }
   }
 
@@ -341,6 +359,25 @@ export function StickFightGame() {
 
   function step(dtReal: number) {
     const s = stateRef.current;
+    const explodeRocket = (bx: number, by: number, ownerId: number) => {
+      s.shake = Math.max(s.shake, 24);
+      spawnParticles(bx, by, 25, "#ff5722", 450, { type: "leaf" });
+      spawnParticles(bx, by, 20, "#ff9800", 350, { type: "dust" });
+      spawnParticles(bx, by, 15, "#8d6e63", 300, { type: "splinter" });
+      for (const p of s.players) {
+        if (s.roundOver && p.hp <= 0) continue;
+        const dx = p.pos.x - bx;
+        const dy = (p.pos.y - p.h / 2) - by;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 130) {
+          const force = (130 - dist) / 130;
+          const dmg = Math.round(55 * force);
+          const kx = Math.sign(dx) * 750 * force;
+          const ky = -450 * force;
+          damage(p, dmg, kx, ky);
+        }
+      }
+    };
     // smooth time scale
     s.timeScale += (s.targetTimeScale - s.timeScale) * Math.min(1, dtReal * 8);
     const dt = dtReal * s.timeScale;
@@ -463,9 +500,18 @@ export function StickFightGame() {
       if (b.trail.length > 8) b.trail.shift();
       b.pos.x += b.vel.x * dt;
       b.pos.y += b.vel.y * dt;
-      b.vel.y += 200 * dt; // slight drop
+      
+      if (!b.isRocket) {
+        b.vel.y += 200 * dt; // slight drop
+      } else {
+        if (Math.random() < 0.3) {
+          spawnParticles(b.pos.x - Math.sign(b.vel.x) * 12, b.pos.y, 1, "#ff9800", 60, { type: "leaf", gravity: false });
+        }
+      }
+      
       b.life -= dtReal;
       if (b.life <= 0 || b.pos.x < -50 || b.pos.x > W + 50 || b.pos.y > H + 50) {
+        if (b.isRocket) explodeRocket(b.pos.x, b.pos.y, b.owner);
         s.bullets.splice(i, 1); continue;
       }
       // hit other player
@@ -474,19 +520,31 @@ export function StickFightGame() {
         const dx = b.pos.x - target.pos.x;
         const dy = b.pos.y - (target.pos.y - target.h / 2);
         if (Math.abs(dx) < target.w / 2 + 4 && Math.abs(dy) < target.h / 2 + 4) {
-          damage(target, b.dmg, Math.sign(b.vel.x) * 250, -150);
-          spawnParticles(b.pos.x, b.pos.y, 6, "#8d6e63", 300, { type: "splinter" });
-          spawnParticles(b.pos.x, b.pos.y, 6, target.color, 250, { type: "leaf" });
+          if (b.isRocket) {
+            explodeRocket(b.pos.x, b.pos.y, b.owner);
+          } else {
+            damage(target, b.dmg, Math.sign(b.vel.x) * 250, -150);
+            spawnParticles(b.pos.x, b.pos.y, 6, "#8d6e63", 300, { type: "splinter" });
+            spawnParticles(b.pos.x, b.pos.y, 6, target.color, 250, { type: "leaf" });
+          }
           s.bullets.splice(i, 1); continue;
         }
       }
       // hit platforms
+      let hitPlatform = false;
       for (const pf of s.platforms) {
         if (b.pos.x > pf.x && b.pos.x < pf.x + pf.w && b.pos.y > pf.y && b.pos.y < pf.y + pf.h) {
-          spawnParticles(b.pos.x, b.pos.y, 8, "#bcaaa4", 200, { type: "dust" });
-          s.bullets.splice(i, 1); break;
+          if (b.isRocket) {
+            explodeRocket(b.pos.x, b.pos.y, b.owner);
+          } else {
+            spawnParticles(b.pos.x, b.pos.y, 8, "#bcaaa4", 200, { type: "dust" });
+          }
+          s.bullets.splice(i, 1);
+          hitPlatform = true;
+          break;
         }
       }
+      if (hitPlatform) continue;
     }
 
     // particles
@@ -539,14 +597,12 @@ export function StickFightGame() {
     ctx.stroke();
     // arms (attack swing)
     const armT = p.attackTimer > 0 ? (1 - p.attackTimer / 0.22) : 0;
-    let armAngle = -Math.PI / 4;
+    let armAngle = 0; // Point straight forward horizontally when idle
     
     if (p.attackTimer > 0) {
       if (p.weapon.kind === "katana") {
-        // Beautiful horizontal slash:
-        // swingDir === 1: sweeps from behind head (-Math.PI * 0.9) to front-horizontal (Math.PI * 0.1)
-        // swingDir === -1: sweeps from front-up (-Math.PI * 0.05) to behind-horizontal (-Math.PI * 0.85)
-        const startVal = -Math.PI / 4;
+        // Beautiful horizontal slash starting and ending straight forward (0)
+        const startVal = 0;
         const peakVal = p.swingDir === 1 ? -Math.PI * 0.9 : -Math.PI * 0.05;
         const slashVal = p.swingDir === 1 ? Math.PI * 0.1 : -Math.PI * 0.85;
         
@@ -561,9 +617,13 @@ export function StickFightGame() {
           const nt = (armT - 0.7) / 0.3;
           armAngle = slashVal + (startVal - slashVal) * nt;
         }
+      } else if (p.weapon.kind === "fists") {
+        const swing = Math.sin(armT * Math.PI) * 0.6;
+        armAngle = swing * p.facing;
       } else {
-        const swing = Math.sin(armT * Math.PI) * 1.3;
-        armAngle = -Math.PI / 4 + swing * p.facing;
+        // Gun firing recoil kickback (starts at 0, kicks up, returns to 0)
+        const kick = Math.sin(armT * Math.PI) * 0.4;
+        armAngle = -kick * p.facing;
       }
     }
     
@@ -638,29 +698,30 @@ export function StickFightGame() {
         ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, 6); ctx.stroke();
         break;
       case "pistol":
-        ctx.strokeStyle = "#8d6e63"; // Slingshot frame
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(0, 0); ctx.lineTo(15, -8);
-        ctx.moveTo(0, 0); ctx.lineTo(15, 8);
-        ctx.stroke();
-        ctx.strokeStyle = "#d7ccc8";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(15, -8); ctx.lineTo(15, 8);
-        ctx.stroke();
+        ctx.fillStyle = "#8d6e63"; // Wooden grip
+        ctx.fillRect(0, 0, 4, 10);
+        ctx.fillStyle = "#b0bec5"; // Steel barrel
+        ctx.fillRect(0, -4, 22, 6);
+        ctx.fillStyle = "#37474f"; // Trigger guard/cylinder
+        ctx.fillRect(4, 2, 4, 4);
         break;
       case "shotgun":
-        ctx.strokeStyle = "#5d4037"; // Dark wood bow
-        ctx.lineWidth = 3.5;
-        ctx.beginPath();
-        ctx.arc(10, 0, 24, -Math.PI / 2, Math.PI / 2);
-        ctx.stroke();
-        ctx.strokeStyle = "#e0e0e0";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(10, -24); ctx.lineTo(10, 24);
-        ctx.stroke();
+        ctx.fillStyle = "#5d4037"; // Wooden stock
+        ctx.fillRect(-8, -2, 12, 6);
+        ctx.fillRect(-12, 2, 6, 8); // Grip
+        ctx.fillStyle = "#37474f"; // Steel receiver
+        ctx.fillRect(4, -5, 8, 8);
+        ctx.fillStyle = "#78909c"; // Double steel barrels
+        ctx.fillRect(12, -5, 28, 6);
+        break;
+      case "rocket":
+        ctx.fillStyle = "#4e342e"; // Heavy wooden barrel
+        ctx.fillRect(-10, -6, 45, 12);
+        ctx.fillStyle = "#8d6e63"; // Wood bands
+        ctx.fillRect(-6, 6, 6, 12);
+        ctx.fillRect(15, 6, 5, 8);
+        ctx.fillStyle = "#37474f"; // Iron ring muzzle
+        ctx.fillRect(35, -8, 4, 16);
         break;
     }
     ctx.restore();
@@ -828,11 +889,36 @@ export function StickFightGame() {
       ctx.arc(0, 0, 12, 0, Math.PI * 2);
       ctx.stroke();
 
+      // Draw miniature weapon drawings inside the token
+      ctx.strokeStyle = "#5d4037";
       ctx.fillStyle = "#5d4037";
-      ctx.font = "bold 11px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(def.name[0], 0, 1);
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      
+      if (pk.kind === "katana") {
+        ctx.beginPath();
+        ctx.moveTo(-10, 6);
+        ctx.lineTo(10, -10); // Blade
+        ctx.stroke();
+        // Guard
+        ctx.beginPath();
+        ctx.moveTo(-6, -1);
+        ctx.lineTo(-2, 3);
+        ctx.stroke();
+      } else if (pk.kind === "pistol") {
+        ctx.fillRect(-6, -3, 12, 4); // Barrel
+        ctx.fillRect(-4, 1, 3, 5);   // Grip
+        ctx.fillRect(0, 1, 2, 2);   // Trigger guard
+      } else if (pk.kind === "shotgun") {
+        ctx.fillRect(-9, -3, 18, 3.5); // Barrels
+        ctx.fillRect(-10, -1, 5, 3.5); // Stock
+        ctx.fillRect(-5, 0.5, 3.5, 3.5); // Grip
+      } else if (pk.kind === "rocket") {
+        ctx.fillRect(-9, -4.5, 18, 7.5); // Launcher tube
+        ctx.fillRect(-4, 3, 2, 3); // Grip
+        ctx.fillRect(3, 3, 2, 2.5); // Second handle
+      }
       ctx.restore();
     }
 
@@ -849,10 +935,23 @@ export function StickFightGame() {
       ctx.lineTo(b.pos.x, b.pos.y);
       ctx.stroke();
       
-      ctx.fillStyle = "#455a64"; // Slate stone bullet
-      ctx.beginPath();
-      ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2);
-      ctx.fill();
+      if (b.isRocket) {
+        ctx.save();
+        ctx.translate(b.pos.x, b.pos.y);
+        ctx.rotate(Math.atan2(b.vel.y, b.vel.x));
+        ctx.fillStyle = "#37474f"; // metal rocket body
+        ctx.fillRect(-12, -4, 18, 8);
+        ctx.fillStyle = "#ff5722"; // nose cone
+        ctx.beginPath();
+        ctx.moveTo(6, -4); ctx.lineTo(14, 0); ctx.lineTo(6, 4);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.fillStyle = "#455a64"; // Slate stone bullet
+        ctx.beginPath();
+        ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
