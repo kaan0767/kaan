@@ -58,6 +58,8 @@ interface Particle {
   color: string;
   size: number;
   gravity?: boolean;
+  type?: "leaf" | "splinter" | "dust" | "spark" | "blood";
+  rotSpeed?: number;
 }
 
 interface Platform {
@@ -73,10 +75,10 @@ const JUMP_V = 720;
 const DASH_V = 1100;
 
 const WEAPON_DEFS: Record<WeaponKind, { name: string; ammo: number; color: string }> = {
-  fists:   { name: "FISTS",   ammo: -1, color: "#9ad" },
-  katana:  { name: "KATANA",  ammo: -1, color: "#7ff" },
-  pistol:  { name: "PISTOL",  ammo: 12, color: "#fd6" },
-  shotgun: { name: "SHOTGUN", ammo: 6,  color: "#f86" },
+  fists:   { name: "UNARMED",      ammo: -1, color: "#a1887f" },
+  katana:  { name: "STEEL SWORD",  ammo: -1, color: "#b0bec5" },
+  pistol:  { name: "SLINGSHOT",   ammo: 12, color: "#8d6e63" },
+  shotgun: { name: "HUNTER BOW",   ammo: 6,  color: "#5d4037" },
 };
 
 function rand(a: number, b: number) { return a + Math.random() * (b - a); }
@@ -123,8 +125,8 @@ export function StickFightGame() {
       { x: 1060, y: 280, w: 140, h: 18 },
     ];
     s.players = [
-      makePlayer(0, 200, H - 200, "#22e9ff", "#22e9ff"),
-      makePlayer(1, W - 230, H - 200, "#ff3df0", "#ff3df0"),
+      makePlayer(0, 200, H - 200, "#2e7d32", "rgba(46, 125, 50, 0.2)"),
+      makePlayer(1, W - 230, H - 200, "#d84315", "rgba(216, 67, 21, 0.2)"),
     ];
     // Preserve wins
     if (stateRef.current.players.length === 2 && stateRef.current.players[0].wins != null) {
@@ -236,11 +238,12 @@ export function StickFightGame() {
       s.particles.push({
         pos: { x, y },
         vel: { x: Math.cos(a) * sp, y: Math.sin(a) * sp - 50 },
-        life: rand(0.3, 0.7),
-        maxLife: 0.7,
+        life: rand(0.4, 0.9),
+        maxLife: 0.9,
         color,
-        size: rand(2, 4),
+        size: rand(2.5, 5),
         gravity: true,
+        rotSpeed: rand(-0.5, 0.5),
         ...opts,
       });
     }
@@ -273,9 +276,10 @@ export function StickFightGame() {
         const dy = other.pos.y - p.pos.y;
         if (Math.abs(dx) < 90 && Math.abs(dy) < 60 && Math.sign(dx) === p.facing) {
           damage(other, 28, p.facing * 500, -300);
-          spawnParticles(other.pos.x, other.pos.y - 30, 18, "#7ff", 400);
+          spawnParticles(other.pos.x, other.pos.y - 30, 10, "#90a4ae", 400, { type: "dust" });
+          spawnParticles(other.pos.x, other.pos.y - 30, 10, "#8d6e63", 300, { type: "splinter" });
         }
-        spawnParticles(muzzleX, muzzleY, 6, "#7ff", 250);
+        spawnParticles(muzzleX, muzzleY, 8, p.color, 250, { type: "leaf" });
         break;
       }
       case "pistol": {
@@ -286,10 +290,10 @@ export function StickFightGame() {
         s.bullets.push({
           pos: { x: muzzleX, y: muzzleY },
           vel: { x: p.facing * 1400, y: rand(-20, 20) },
-          owner: p.id, life: 1.2, dmg: 18, trail: [], color: "#fd6",
+          owner: p.id, life: 1.2, dmg: 18, trail: [], color: "#a1887f",
         });
         s.shake = Math.max(s.shake, 4);
-        spawnParticles(muzzleX, muzzleY, 4, "#fd6", 220, { gravity: false });
+        spawnParticles(muzzleX, muzzleY, 4, "#8d6e63", 220, { type: "splinter", gravity: false });
         break;
       }
       case "shotgun": {
@@ -301,11 +305,11 @@ export function StickFightGame() {
           s.bullets.push({
             pos: { x: muzzleX, y: muzzleY },
             vel: { x: p.facing * rand(900, 1200), y: rand(-260, 260) },
-            owner: p.id, life: 0.4, dmg: 9, trail: [], color: "#f86",
+            owner: p.id, life: 0.4, dmg: 9, trail: [], color: "#5d4037",
           });
         }
         s.shake = Math.max(s.shake, 10);
-        spawnParticles(muzzleX, muzzleY, 14, "#f86", 350, { gravity: false });
+        spawnParticles(muzzleX, muzzleY, 12, "#8d6e63", 350, { type: "splinter", gravity: false });
         break;
       }
     }
@@ -319,7 +323,8 @@ export function StickFightGame() {
     p.hitFlash = 0.25;
     const s = stateRef.current;
     s.shake = Math.max(s.shake, Math.min(18, dmg * 0.6));
-    spawnParticles(p.pos.x, p.pos.y - 30, Math.min(30, dmg), "#f44", 300);
+    spawnParticles(p.pos.x, p.pos.y - 30, Math.min(15, dmg / 2), "#8d6e63", 300, { type: "splinter" });
+    spawnParticles(p.pos.x, p.pos.y - 30, Math.min(15, dmg / 2), p.color, 300, { type: "leaf" });
     if (p.hp <= 0 && !s.roundOver) {
       s.roundOver = true;
       s.roundOverTimer = 2.5;
@@ -328,9 +333,9 @@ export function StickFightGame() {
       winner.wins++;
       s.winnerText = `PLAYER ${winner.id + 1} WINS`;
       setScoreTick(t => t + 1);
-      // big explosion
-      spawnParticles(p.pos.x, p.pos.y - 30, 60, "#f44", 600);
-      spawnParticles(p.pos.x, p.pos.y - 30, 30, "#fff", 400);
+      // big explosion: wood splinters and leaves
+      spawnParticles(p.pos.x, p.pos.y - 30, 40, "#8d6e63", 500, { type: "splinter" });
+      spawnParticles(p.pos.x, p.pos.y - 30, 40, p.color, 400, { type: "leaf" });
     }
   }
 
@@ -385,7 +390,7 @@ export function StickFightGame() {
       if (c.jumpPressed && p.jumps > 0) {
         p.vel.y = -JUMP_V;
         p.jumps--;
-        spawnParticles(p.pos.x, p.pos.y, 8, "#fff", 200);
+        spawnParticles(p.pos.x, p.pos.y, 8, "#a1887f", 200, { type: "dust" });
       }
       // dash
       if (c.dashPressed && p.dashCd <= 0) {
@@ -393,7 +398,7 @@ export function StickFightGame() {
         p.vel.y = Math.min(p.vel.y, -100);
         p.dashCd = 0.6;
         p.invuln = Math.max(p.invuln, 0.15);
-        spawnParticles(p.pos.x, p.pos.y - 20, 14, p.glow, 350);
+        spawnParticles(p.pos.x, p.pos.y - 20, 14, p.id === 0 ? "#4caf50" : "#ff9800", 350, { type: "leaf" });
       }
       // slide
       if (c.down && p.onGround && Math.abs(p.vel.x) > 200) {
@@ -444,7 +449,7 @@ export function StickFightGame() {
         if (dx * dx + dy * dy < 40 * 40) {
           const def = WEAPON_DEFS[pk.kind];
           p.weapon = { kind: pk.kind, ammo: def.ammo, cooldown: 0.1 };
-          spawnParticles(pk.pos.x, pk.pos.y, 12, def.color, 250);
+          spawnParticles(pk.pos.x, pk.pos.y, 12, def.color, 250, { type: "leaf" });
           s.pickups.splice(i, 1);
         }
       }
@@ -470,14 +475,15 @@ export function StickFightGame() {
         const dy = b.pos.y - (target.pos.y - target.h / 2);
         if (Math.abs(dx) < target.w / 2 + 4 && Math.abs(dy) < target.h / 2 + 4) {
           damage(target, b.dmg, Math.sign(b.vel.x) * 250, -150);
-          spawnParticles(b.pos.x, b.pos.y, 10, b.color, 300);
+          spawnParticles(b.pos.x, b.pos.y, 6, "#8d6e63", 300, { type: "splinter" });
+          spawnParticles(b.pos.x, b.pos.y, 6, target.color, 250, { type: "leaf" });
           s.bullets.splice(i, 1); continue;
         }
       }
       // hit platforms
       for (const pf of s.platforms) {
         if (b.pos.x > pf.x && b.pos.x < pf.x + pf.w && b.pos.y > pf.y && b.pos.y < pf.y + pf.h) {
-          spawnParticles(b.pos.x, b.pos.y, 6, "#fff", 200);
+          spawnParticles(b.pos.x, b.pos.y, 8, "#bcaaa4", 200, { type: "dust" });
           s.bullets.splice(i, 1); break;
         }
       }
@@ -501,10 +507,11 @@ export function StickFightGame() {
     const x = p.pos.x;
     const y = p.pos.y;
     ctx.save();
-    ctx.shadowColor = p.glow;
-    ctx.shadowBlur = 18;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 2;
     ctx.strokeStyle = p.hitFlash > 0 ? "#fff" : p.color;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 4.5;
     ctx.lineCap = "round";
 
     const headR = 11;
@@ -536,10 +543,12 @@ export function StickFightGame() {
     
     if (p.attackTimer > 0) {
       if (p.weapon.kind === "katana") {
-        // Beautiful 3-phase slash: wind-up, fast sweep, recovery
+        // Beautiful horizontal slash:
+        // swingDir === 1: sweeps from behind head (-Math.PI * 0.9) to front-horizontal (Math.PI * 0.1)
+        // swingDir === -1: sweeps from front-up (-Math.PI * 0.05) to behind-horizontal (-Math.PI * 0.85)
         const startVal = -Math.PI / 4;
-        const peakVal = p.swingDir === 1 ? -Math.PI * 0.8 : Math.PI * 0.3;
-        const slashVal = p.swingDir === 1 ? Math.PI * 0.3 : -Math.PI * 0.8;
+        const peakVal = p.swingDir === 1 ? -Math.PI * 0.9 : -Math.PI * 0.05;
+        const slashVal = p.swingDir === 1 ? Math.PI * 0.1 : -Math.PI * 0.85;
         
         if (armT < 0.2) {
           const nt = armT / 0.2;
@@ -568,12 +577,10 @@ export function StickFightGame() {
     ctx.lineTo(x - 14 * p.facing, headY + headR + 22);
     ctx.stroke();
 
-    // neon slash trail for katana
+    // Wind sweep slash trail for katana
     if (p.weapon.kind === "katana" && p.attackTimer > 0 && armT >= 0.2 && armT <= 0.8) {
       ctx.save();
-      ctx.shadowColor = "#7ff";
-      ctx.shadowBlur = 24;
-      ctx.strokeStyle = "rgba(119, 255, 255, 0.4)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.35)"; // Soft white wind sweep
       ctx.lineWidth = 6;
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -582,7 +589,7 @@ export function StickFightGame() {
       const shoulderY = headY + headR + 6;
       const radius = 86;
       
-      const a1 = p.swingDir === 1 ? -Math.PI * 0.8 : Math.PI * 0.3;
+      const a1 = p.swingDir === 1 ? -Math.PI * 0.9 : -Math.PI * 0.05;
       const a2 = armAngle;
       
       if (p.facing === 1) {
@@ -594,9 +601,8 @@ export function StickFightGame() {
       }
       ctx.stroke();
       
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.shadowBlur = 8;
+      ctx.strokeStyle = "rgba(230, 240, 255, 0.7)"; // Inner brighter wind line
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
       if (p.facing === 1) {
         ctx.arc(shoulderX, shoulderY, radius, a1, a2, p.swingDir === -1);
@@ -620,24 +626,41 @@ export function StickFightGame() {
     ctx.save();
     ctx.translate(hx, hy);
     ctx.rotate(p.facing === 1 ? angle : Math.PI - angle);
-    ctx.shadowColor = def.color;
-    ctx.shadowBlur = 14;
     ctx.strokeStyle = def.color;
     ctx.fillStyle = def.color;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3.5;
     switch (p.weapon.kind) {
       case "fists": break;
       case "katana":
+        ctx.strokeStyle = "#b0bec5"; // Steel grey
         ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(70, -4); ctx.stroke();
+        ctx.strokeStyle = "#8d6e63"; // Wood brown
         ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, 6); ctx.stroke();
         break;
       case "pistol":
-        ctx.fillRect(0, -3, 22, 6);
-        ctx.fillRect(4, 2, 6, 10);
+        ctx.strokeStyle = "#8d6e63"; // Slingshot frame
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(15, -8);
+        ctx.moveTo(0, 0); ctx.lineTo(15, 8);
+        ctx.stroke();
+        ctx.strokeStyle = "#d7ccc8";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(15, -8); ctx.lineTo(15, 8);
+        ctx.stroke();
         break;
       case "shotgun":
-        ctx.fillRect(0, -4, 38, 8);
-        ctx.fillRect(8, 3, 8, 12);
+        ctx.strokeStyle = "#5d4037"; // Dark wood bow
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.arc(10, 0, 24, -Math.PI / 2, Math.PI / 2);
+        ctx.stroke();
+        ctx.strokeStyle = "#e0e0e0";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(10, -24); ctx.lineTo(10, 24);
+        ctx.stroke();
         break;
     }
     ctx.restore();
@@ -652,93 +675,172 @@ export function StickFightGame() {
     ctx.save();
     ctx.translate(sx, sy);
 
-    // background — cyber city
+    // background — forest clearing at sunset
     const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-    bgGrad.addColorStop(0, "#0a0420");
-    bgGrad.addColorStop(0.5, "#1a0840");
-    bgGrad.addColorStop(1, "#06030f");
+    bgGrad.addColorStop(0, "#1a237e"); // Deep dusk indigo
+    bgGrad.addColorStop(0.6, "#880e4f"); // Dark purple
+    bgGrad.addColorStop(1, "#ff5722"); // Sunset orange
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, W, H);
 
-    // grid + skyline silhouettes
-    ctx.strokeStyle = "rgba(120, 60, 200, 0.15)";
-    ctx.lineWidth = 1;
-    for (let i = 0; i < W; i += 60) {
-      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, H); ctx.stroke();
-    }
-    for (let i = 0; i < H; i += 60) {
-      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(W, i); ctx.stroke();
-    }
-    // skyline
-    ctx.fillStyle = "rgba(20, 8, 40, 0.9)";
-    const buildings = [80, 160, 110, 220, 140, 90, 180, 130, 200, 100, 170, 240, 120, 90, 180];
-    let bx = 0;
-    for (const bh of buildings) {
-      ctx.fillRect(bx, H - 60 - bh, 80, bh);
-      // windows
-      ctx.fillStyle = "rgba(80, 200, 255, 0.4)";
-      for (let wy = H - 60 - bh + 20; wy < H - 80; wy += 22) {
-        for (let wx = bx + 10; wx < bx + 70; wx += 18) {
-          if (((wx + wy) | 0) % 3 === 0) ctx.fillRect(wx, wy, 6, 8);
-        }
-      }
-      ctx.fillStyle = "rgba(20, 8, 40, 0.9)";
-      bx += 85;
+    // Warm Sun
+    ctx.save();
+    ctx.fillStyle = "#ffcc80";
+    ctx.shadowColor = "#ffab40";
+    ctx.shadowBlur = 40;
+    ctx.beginPath();
+    ctx.arc(W - 220, 160, 55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Distant Mountains/Hills (Layer 1)
+    ctx.fillStyle = "#2d1a3c";
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    ctx.lineTo(0, H - 180);
+    ctx.quadraticCurveTo(W * 0.25, H - 240, W * 0.5, H - 160);
+    ctx.quadraticCurveTo(W * 0.75, H - 100, W, H - 200);
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+
+    // Pine Trees on Distant Hills
+    ctx.fillStyle = "#1e112a";
+    const treePositions = [80, 180, 260, 420, 520, 710, 840, 960, 1120, 1200];
+    for (const tx of treePositions) {
+      const ty = H - 170 + Math.sin(tx) * 30;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 60);
+      ctx.lineTo(tx - 20, ty);
+      ctx.lineTo(tx + 20, ty);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 85);
+      ctx.lineTo(tx - 15, ty - 35);
+      ctx.lineTo(tx + 15, ty - 35);
+      ctx.closePath();
+      ctx.fill();
     }
 
-    // bullet-time vignette
+    // Closer Forest Hills (Layer 2)
+    ctx.fillStyle = "#1b3022"; // Dark forest green
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    ctx.lineTo(0, H - 100);
+    ctx.quadraticCurveTo(W * 0.3, H - 140, W * 0.6, H - 90);
+    ctx.quadraticCurveTo(W * 0.8, H - 60, W, H - 120);
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+
+    // Pine Trees on closer hills
+    ctx.fillStyle = "#0b1d12";
+    const closeTrees = [40, 120, 310, 480, 620, 780, 920, 1050, 1160, 1240];
+    for (const tx of closeTrees) {
+      const ty = H - 100 + Math.sin(tx) * 20;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 70);
+      ctx.lineTo(tx - 22, ty);
+      ctx.lineTo(tx + 22, ty);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 100);
+      ctx.lineTo(tx - 16, ty - 40);
+      ctx.lineTo(tx + 16, ty - 40);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // focus-time vignette (warm natural shading)
     const slow = s.timeScale < 0.9;
     if (slow) {
       const v = ctx.createRadialGradient(W/2, H/2, 100, W/2, H/2, 700);
       v.addColorStop(0, "rgba(0,0,0,0)");
-      v.addColorStop(1, `rgba(120, 0, 180, ${0.5 * (1 - s.timeScale)})`);
+      v.addColorStop(1, `rgba(46, 125, 50, ${0.4 * (1 - s.timeScale)})`); // Leaf green glow vignette
       ctx.fillStyle = v;
       ctx.fillRect(0, 0, W, H);
     }
 
-    // platforms
+    // platforms (mossy rock blocks)
     for (const pf of s.platforms) {
       ctx.save();
-      ctx.shadowColor = "#22e9ff";
-      ctx.shadowBlur = 14;
-      ctx.fillStyle = "#1a3a5a";
+      // Stone base
+      ctx.fillStyle = "#4e342e";
       ctx.fillRect(pf.x, pf.y, pf.w, pf.h);
-      ctx.strokeStyle = "#22e9ff";
+      
+      // Stone bricks texture lines
+      ctx.strokeStyle = "#3e2723";
       ctx.lineWidth = 2;
       ctx.strokeRect(pf.x + 0.5, pf.y + 0.5, pf.w - 1, pf.h - 1);
+      
+      for (let sx = pf.x + 60; sx < pf.x + pf.w; sx += 60) {
+        ctx.beginPath();
+        ctx.moveTo(sx, pf.y);
+        ctx.lineTo(sx, pf.y + pf.h);
+        ctx.stroke();
+      }
+
+      // Moss cover
+      ctx.fillStyle = "#2e7d32";
+      ctx.fillRect(pf.x, pf.y, pf.w, Math.min(pf.h, 6));
+      
+      // Moss details
+      ctx.fillStyle = "#1b5e20";
+      for (let gx = pf.x + 4; gx < pf.x + pf.w - 4; gx += 8) {
+        ctx.beginPath();
+        ctx.moveTo(gx, pf.y + 6);
+        ctx.lineTo(gx - 2, pf.y + 10);
+        ctx.lineTo(gx + 2, pf.y + 10);
+        ctx.closePath();
+        ctx.fill();
+      }
       ctx.restore();
     }
 
-    // pickups
+    // pickups (wood scrolls/tokens)
     for (const pk of s.pickups) {
       const def = WEAPON_DEFS[pk.kind];
       const yBob = Math.sin(pk.bob) * 6;
       ctx.save();
       ctx.translate(pk.pos.x, pk.pos.y + yBob);
-      ctx.shadowColor = def.color;
-      ctx.shadowBlur = 20;
-      ctx.strokeStyle = def.color;
-      ctx.fillStyle = def.color + "33";
-      ctx.lineWidth = 2;
+      
+      // Shadow
+      ctx.fillStyle = "rgba(0,0,0,0.15)";
       ctx.beginPath();
-      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.arc(0, 8, 16, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Wooden token
+      ctx.fillStyle = "#d7ccc8";
+      ctx.strokeStyle = "#5d4037";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 16, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
-      ctx.fillStyle = def.color;
-      ctx.font = "bold 9px JetBrains Mono";
+      
+      ctx.strokeStyle = "#8d6e63";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = "#5d4037";
+      ctx.font = "bold 11px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.shadowBlur = 8;
       ctx.fillText(def.name[0], 0, 1);
       ctx.restore();
     }
 
-    // bullets with trails
+    // bullets with trails (wind trails)
     for (const b of s.bullets) {
       ctx.save();
-      ctx.shadowColor = b.color;
-      ctx.shadowBlur = 12;
-      ctx.strokeStyle = b.color;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(120, 120, 120, 0.35)";
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       for (let i = 0; i < b.trail.length; i++) {
         const pt = b.trail[i];
@@ -746,22 +848,46 @@ export function StickFightGame() {
       }
       ctx.lineTo(b.pos.x, b.pos.y);
       ctx.stroke();
-      ctx.fillStyle = "#fff";
+      
+      ctx.fillStyle = "#455a64"; // Slate stone bullet
       ctx.beginPath();
-      ctx.arc(b.pos.x, b.pos.y, 2.5, 0, Math.PI * 2);
+      ctx.arc(b.pos.x, b.pos.y, 3, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
 
-    // particles
+    // particles (leaves, splinters, dust)
     for (const pa of s.particles) {
       const a = Math.max(0, pa.life / pa.maxLife);
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.shadowColor = pa.color;
-      ctx.shadowBlur = 8;
       ctx.fillStyle = pa.color;
-      ctx.fillRect(pa.pos.x - pa.size / 2, pa.pos.y - pa.size / 2, pa.size, pa.size);
+      
+      const type = pa.type || "dust";
+      const size = pa.size;
+      
+      if (type === "leaf") {
+        const rot = (pa.rotSpeed || 0) * (pa.maxLife - pa.life) * 10;
+        ctx.translate(pa.pos.x, pa.pos.y);
+        ctx.rotate(rot);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, size * 2, size, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (type === "splinter") {
+        const rot = Math.atan2(pa.vel.y, pa.vel.x);
+        ctx.translate(pa.pos.x, pa.pos.y);
+        ctx.rotate(rot);
+        ctx.strokeStyle = pa.color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-size * 2, 0);
+        ctx.lineTo(size * 2, 0);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(pa.pos.x, pa.pos.y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
@@ -778,12 +904,14 @@ export function StickFightGame() {
     // round over banner
     if (s.roundOver) {
       ctx.save();
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillStyle = "rgba(62, 39, 35, 0.85)"; // Deep wood brown board
       ctx.fillRect(0, H / 2 - 60, W, 120);
-      ctx.fillStyle = "#fff";
-      ctx.shadowColor = "#ff3df0";
-      ctx.shadowBlur = 30;
-      ctx.font = "900 56px Orbitron";
+      ctx.strokeStyle = "#8d6e63";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(-10, H / 2 - 60, W + 20, 120);
+
+      ctx.fillStyle = "#fcfaf2"; // Parchment text
+      ctx.font = "bold 52px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(s.winnerText, W / 2, H / 2);
@@ -798,55 +926,58 @@ export function StickFightGame() {
       const x = isP1 ? 20 : W - 280;
       const y = 20;
       ctx.save();
-      // panel
-      ctx.fillStyle = "rgba(8, 4, 24, 0.7)";
-      ctx.strokeStyle = p.color;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 12;
+      // panel (parchment card style)
+      ctx.fillStyle = "rgba(252, 250, 242, 0.9)";
+      ctx.strokeStyle = "#5d4037"; // dark wood
+      ctx.lineWidth = 3;
       ctx.fillRect(x, y, 260, 80);
       ctx.strokeRect(x + 0.5, y + 0.5, 259, 79);
-      ctx.shadowBlur = 0;
+      
       // label
       ctx.fillStyle = p.color;
-      ctx.font = "bold 14px Orbitron";
+      ctx.font = "bold 15px sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText(`P${p.id + 1}`, x + 10, y + 18);
-      ctx.fillStyle = "#fff";
-      ctx.font = "10px JetBrains Mono";
-      ctx.fillText(`WINS ${p.wins}`, x + 40, y + 18);
+      ctx.fillText(`PLAYER ${p.id + 1}`, x + 12, y + 20);
+      ctx.fillStyle = "#5d4037";
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillText(`WINS ${p.wins}`, x + 200, y + 20);
+      
       // HP bar
-      ctx.fillStyle = "#220";
-      ctx.fillRect(x + 10, y + 26, 240, 12);
-      ctx.fillStyle = p.hp > 30 ? "#3ef58b" : "#f54";
-      ctx.fillRect(x + 10, y + 26, 240 * Math.max(0, p.hp) / 100, 12);
-      ctx.strokeStyle = "rgba(255,255,255,0.2)";
-      ctx.strokeRect(x + 10, y + 26, 240, 12);
-      // energy
-      ctx.fillStyle = "#022";
-      ctx.fillRect(x + 10, y + 42, 240, 8);
-      ctx.fillStyle = s.bulletTimeActive[p.id] ? "#ff3df0" : "#22e9ff";
-      ctx.fillRect(x + 10, y + 42, 240 * p.energy / 100, 8);
+      ctx.fillStyle = "#d7ccc8";
+      ctx.fillRect(x + 12, y + 28, 236, 12);
+      ctx.fillStyle = p.hp > 30 ? "#558b2f" : "#c62828"; // Moss green / rust red
+      ctx.fillRect(x + 12, y + 28, 236 * Math.max(0, p.hp) / 100, 12);
+      ctx.strokeStyle = "#5d4037";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 12, y + 28, 236, 12);
+      
+      // focus energy
+      ctx.fillStyle = "#efebe9";
+      ctx.fillRect(x + 12, y + 45, 236, 8);
+      ctx.fillStyle = s.bulletTimeActive[p.id] ? "#f57c00" : "#ffb300"; // focus active vs charge
+      ctx.fillRect(x + 12, y + 45, 236 * p.energy / 100, 8);
+      ctx.strokeStyle = "#5d4037";
+      ctx.strokeRect(x + 12, y + 45, 236, 8);
+
       // weapon
       const def = WEAPON_DEFS[p.weapon.kind];
-      ctx.fillStyle = def.color;
-      ctx.font = "bold 11px JetBrains Mono";
-      ctx.fillText(def.name, x + 10, y + 66);
+      ctx.fillStyle = "#5d4037";
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillText(def.name, x + 12, y + 68);
       if (p.weapon.ammo >= 0) {
-        ctx.fillStyle = "#fff";
-        ctx.fillText(`AMMO ${p.weapon.ammo}`, x + 100, y + 66);
+        ctx.fillStyle = "#8d6e63";
+        ctx.font = "900 11px sans-serif";
+        ctx.fillText(`AMMO ${p.weapon.ammo}`, x + 180, y + 68);
       }
       ctx.restore();
     }
     // time scale indicator
     if (s.timeScale < 0.9) {
       ctx.save();
-      ctx.fillStyle = "#ff3df0";
-      ctx.shadowColor = "#ff3df0";
-      ctx.shadowBlur = 20;
-      ctx.font = "bold 18px Orbitron";
+      ctx.fillStyle = "#2e7d32";
+      ctx.font = "bold 18px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("◆ BULLET TIME ◆", W / 2, 40);
+      ctx.fillText("◆ ZEN FOCUS ◆", W / 2, 40);
       ctx.restore();
     }
   }
@@ -855,7 +986,7 @@ export function StickFightGame() {
   void scoreTick;
 
   return (
-    <div className="relative w-full h-full bg-background flex flex-col items-center justify-center">
+    <div className="relative w-full h-full min-h-screen bg-gradient-to-br from-[#efebe9] to-[#d7ccc8] flex flex-col items-center justify-center p-4">
       {!started ? (
         <StartScreen onStart={() => setStarted(true)} />
       ) : (
@@ -864,18 +995,18 @@ export function StickFightGame() {
             ref={canvasRef}
             width={W}
             height={H}
-            className="border border-border rounded-lg shadow-2xl"
+            className="border-4 border-[#5d4037] rounded-xl shadow-2xl"
             style={{
               maxWidth: "100vw",
               maxHeight: "100vh",
-              boxShadow: "0 0 80px rgba(34, 233, 255, 0.25), 0 0 120px rgba(255, 61, 240, 0.15)",
+              boxShadow: "0 10px 40px rgba(93, 64, 55, 0.35)",
             }}
           />
           <button
             onClick={() => setStarted(false)}
-            className="absolute top-2 right-2 px-3 py-1 text-xs font-mono uppercase tracking-wider rounded bg-card/80 border border-border text-muted-foreground hover:text-foreground"
+            className="absolute top-4 right-4 px-4 py-2 text-xs font-sans font-bold uppercase tracking-wider rounded-md bg-[#fcfaf2]/90 border-2 border-[#5d4037] text-[#5d4037] hover:bg-[#efebe9] transition-colors shadow-md"
           >
-            Menu
+            Leave Woods
           </button>
         </div>
       )}
@@ -885,62 +1016,62 @@ export function StickFightGame() {
 
 function StartScreen({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-8 p-8 text-center max-w-4xl">
+    <div className="flex flex-col items-center gap-8 p-8 text-center max-w-4xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md">
       <div>
         <h1
-          className="font-display font-black text-7xl md:text-8xl tracking-tight"
+          className="font-sans font-black text-6xl md:text-7xl tracking-tight"
           style={{
-            background: "linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta))",
+            background: "linear-gradient(90deg, #2e7d32, #d84315)",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
-            textShadow: "0 0 60px rgba(34, 233, 255, 0.3)",
+            textShadow: "2px 2px 0px rgba(93, 64, 55, 0.15)",
           }}
         >
-          NEON STRIKE
+          WILDWOOD STRIKE
         </h1>
-        <p className="mt-3 text-muted-foreground uppercase tracking-[0.4em] text-sm">
-          Stickman Fight · Bullet Time · Local 2P
+        <p className="mt-3 text-[#5d4037] font-semibold uppercase tracking-[0.3em] text-xs">
+          Stickman Fight · Zen Focus · Local 2P
         </p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 w-full">
         <ControlsCard
-          color="var(--neon-cyan)"
-          label="PLAYER 1"
+          color="#2e7d32"
+          label="PLAYER 1 (FOREST)"
           rows={[
             ["Move", "A / D"],
             ["Jump / Double", "W"],
-            ["Dash", "Shift / Q"],
-            ["Attack / Fire", "F"],
-            ["Bullet Time", "E (hold)"],
+            ["Dash / Leaf Sweep", "Shift / Q"],
+            ["Attack / Strike", "F"],
+            ["Zen Focus", "E (hold)"],
           ]}
         />
         <ControlsCard
-          color="var(--neon-magenta)"
-          label="PLAYER 2"
+          color="#d84315"
+          label="PLAYER 2 (AUTUMN)"
           rows={[
             ["Move", "← / →"],
             ["Jump / Double", "↑"],
-            ["Dash", "/ "],
-            ["Attack / Fire", "."],
-            ["Bullet Time", ", (hold)"],
+            ["Dash / Leaf Sweep", "/"],
+            ["Attack / Strike", "."],
+            ["Zen Focus", ", (hold)"],
           ]}
         />
       </div>
 
       <button
         onClick={onStart}
-        className="group relative px-12 py-4 font-display font-bold text-xl uppercase tracking-[0.3em] text-background rounded-md transition-transform hover:scale-105 active:scale-95"
+        className="group relative px-12 py-4 font-sans font-bold text-xl uppercase tracking-[0.2em] text-[#fcfaf2] rounded-md transition-transform hover:scale-105 active:scale-95 border-b-4 border-[#1b5e20]"
         style={{
-          background: "linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta))",
-          boxShadow: "0 0 30px rgba(34, 233, 255, 0.5), 0 0 60px rgba(255, 61, 240, 0.3)",
+          background: "linear-gradient(90deg, #2e7d32, #d84315)",
+          boxShadow: "0 6px 20px rgba(46, 125, 50, 0.35)",
         }}
       >
-        Fight
+        Enter the Woods
       </button>
 
-      <p className="text-xs text-muted-foreground max-w-md">
-        Grab weapons that drop on the map. First to lose all HP loses the round. Hold bullet-time to dodge incoming fire.
+      <p className="text-xs text-[#8d6e63] max-w-md">
+        Collect wooden scroll packages containing items. First to lose all energy/HP loses the round. Hold Zen Focus to slow time and dodge projectiles.
       </p>
     </div>
   );
@@ -949,17 +1080,17 @@ function StartScreen({ onStart }: { onStart: () => void }) {
 function ControlsCard({ color, label, rows }: { color: string; label: string; rows: [string, string][] }) {
   return (
     <div
-      className="rounded-lg border border-border bg-card/60 p-5 text-left backdrop-blur"
-      style={{ boxShadow: `inset 0 0 0 1px ${color}33, 0 0 24px ${color}22` }}
+      className="rounded-lg border-2 border-[#5d4037] bg-[#fcfaf2]/95 p-5 text-left shadow-lg backdrop-blur"
+      style={{ boxShadow: `0 4px 20px rgba(93, 64, 55, 0.15)` }}
     >
-      <div className="font-display font-bold text-lg mb-3" style={{ color }}>
+      <div className="font-sans font-bold text-lg mb-3" style={{ color }}>
         {label}
       </div>
-      <dl className="space-y-1.5 text-sm font-mono">
+      <dl className="space-y-1.5 text-sm font-mono text-[#3e2723]">
         {rows.map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">{k}</dt>
-            <dd className="text-foreground">{v}</dd>
+          <div key={k} className="flex justify-between gap-4 border-b border-[#efebe9] pb-1">
+            <dt className="text-[#8d6e63]">{k}</dt>
+            <dd className="text-[#3e2723] font-bold">{v}</dd>
           </div>
         ))}
       </dl>
