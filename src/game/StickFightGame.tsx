@@ -518,14 +518,17 @@ export function StickFightGame() {
       spawnParticles(p.pos.x, p.pos.y - 30, 40, p.color, 400, { type: "leaf" });
     }
   }
+  
+  // Yapay Zekâ Bot Kontrol Mekanizması (VS AI Modu)
   function updateAI(bot: Player, dtReal: number) {
     const s = stateRef.current;
+    // Eğer raunt bittiyse, bot öldüyse ya da sersemlemiş durumdaysa işlem yapma
     if (s.roundOver || bot.hp <= 0 || bot.stunTimer > 0) return;
     
-    const target = s.players[0]; // Player 1 is target
+    const target = s.players[0]; // Hedef oyuncu (Player 1)
     if (target.hp <= 0) return;
     
-    // Clear all bot keys
+    // Her karede botun bir önceki karedeki tüm girdi tuşlarını sıfırla
     s.keys.delete("ArrowLeft");
     s.keys.delete("ArrowRight");
     s.keys.delete("ArrowUp");
@@ -538,24 +541,26 @@ export function StickFightGame() {
     s.keysPressed.delete(".");
     s.keysPressed.delete("/");
     
-    // Target coordinate selection (default to target player)
+    // Varsayılan hedef koordinatlar oyuncunun (P1) pozisyonudur
     let targetX = target.pos.x;
     let targetY = target.pos.y;
     
-    // Seek items if unarmed
+    // Botun elinde silah yoksa (fists ise) yerdeki silahları aramaya karar ver
     let seekItem = bot.weapon.kind === "fists";
     
-    // Seek healing scroll if low health
+    // Eğer canı %75'in altındaysa ve haritada şifa parşömeni varsa onu almaya öncelik ver
     const healingScroll = s.powerups.find(po => po.kind === "healing");
     if (bot.hp < 75 && healingScroll) {
       seekItem = true;
     }
     
+    // Silah arama veya Şifa alma durumu aktifse en yakın ögeyi bul
     if (seekItem) {
       let closestDist = 9999;
       let bestX = -1;
       let bestY = -1;
       
+      // Sahnedeki tüm silah kutularını (pickup) gez ve Öklid mesafesini hesapla
       for (const pk of s.pickups) {
         const dx = pk.pos.x - bot.pos.x;
         const dy = pk.pos.y - bot.pos.y;
@@ -567,10 +572,12 @@ export function StickFightGame() {
         }
       }
       
+      // Sahnedeki tüm düşen parşömenleri (powerups) gez
       for (const po of s.powerups) {
         const dx = po.pos.x - bot.pos.x;
         const dy = po.pos.y - bot.pos.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
+        // Can düşükken şifa parşömenini 2 kat daha cazip hale getir (mesafe ağırlığını düşür)
         const weight = (bot.hp < 75 && po.kind === "healing") ? 0.5 : 1.0;
         if (dist * weight < closestDist) {
           closestDist = dist * weight;
@@ -579,63 +586,63 @@ export function StickFightGame() {
         }
       }
       
+      // Eğer en yakın öge koordinatı bulunduysa hedefi güncelle
       if (bestX !== -1) {
         targetX = bestX;
         targetY = bestY;
       }
     }
     
-    // Calculated direct distance to target
+    // Bot ile hedeflenen nokta arasındaki mesafeler
     const dx = targetX - bot.pos.x;
     const dy = targetY - bot.pos.y;
     const directDist = Math.sqrt(dx * dx + dy * dy);
     
-    // Ranged weapon distance logic (Kiting)
+    // Menzilli silah taşıyıp taşımadığını kontrol et (Tabanca, Pompalı, Roketatar)
     const isRanged = bot.weapon.kind === "pistol" || bot.weapon.kind === "shotgun" || bot.weapon.kind === "rocket";
-    let moveDir = 0; // -1: left, 1: right, 0: stop
+    let moveDir = 0; // Botun yatay hareket yönü (-1: sol, 1: sağ, 0: dur)
     
     if (!seekItem && isRanged) {
-      // The bot has a gun and is fighting the player.
-      // It wants to maintain a distance of 200 to 380 pixels.
+      // Menzilli silahı varken oyuncuyla savaşıyorsa ideal mesafeyi (200-380px) koru (Kiting)
       if (directDist < 170) {
-        // Player is too close! Run away in the opposite direction!
+        // Çok yakın! Geriye doğru kaçarak mesafeyi aç
         moveDir = dx > 0 ? -1 : 1;
       } else if (directDist > 380) {
-        // Player is too far. Run towards them.
+        // Çok uzak! Ateş etmek için hedefe yaklaş
         moveDir = dx > 0 ? 1 : -1;
       } else {
-        // Perfect distance. Stand still to shoot.
+        // İdeal menzilde! Durup ateş et
         moveDir = 0;
       }
     } else {
-      // Melee weapon or seeking item. Run directly towards target.
+      // Yakın dövüş silahı varsa veya silah arıyorsa doğrudan hedefe doğru koş
       if (Math.abs(dx) > 15) {
         moveDir = dx > 0 ? 1 : -1;
       }
     }
     
-    // Apply movement keys based on moveDir
+    // Yatay hareket tuşlarını aktifleştir
     if (moveDir === -1) s.keys.add("ArrowLeft");
     else if (moveDir === 1) s.keys.add("ArrowRight");
     
-    // Platform pathfinding: If climbing up to reach target, run to the edge of platforms blocking direct vertical ascent
+    // Gelişmiş Platform Yol Bulma (Platform altında düz zıplayıp sıkışmayı önleme)
     let finalTargetX = targetX;
     if (dy < -40 && Math.abs(dx) < 250) {
       for (const pf of s.platforms) {
-        // Is there a platform vertically between the bot and the target?
+        // Eğer hedeflenen platform dikey olarak botun yukarısındaysa
         if (pf.y < bot.pos.y - 10 && pf.y > targetY - 20) {
-          // And is the bot horizontally underneath this platform?
+          // Ve bot yatay olarak bu platformun altındaki gölgedeyse
           if (bot.pos.x > pf.x - 15 && bot.pos.x < pf.x + pf.w + 15) {
-            // Run to the nearest side edge instead of standing underneath
+            // Platform tavanına çarpmak yerine platformun en yakın sol veya sağ kenarına koş
             const toLeft = Math.abs(bot.pos.x - pf.x);
             const toRight = Math.abs(bot.pos.x - (pf.x + pf.w));
             if (toLeft < toRight) {
-              finalTargetX = pf.x - 45;
+              finalTargetX = pf.x - 45; // Sol köşeye yönlen
             } else {
-              finalTargetX = pf.x + pf.w + 45;
+              finalTargetX = pf.x + pf.w + 45; // Sağ köşeye yönlen
             }
             
-            // Override movement direction to run to the platform edge
+            // Kenara koşmak için yatay hareket tuşlarını ez/güncelle
             const pathDx = finalTargetX - bot.pos.x;
             if (Math.abs(pathDx) > 15) {
               s.keys.delete("ArrowLeft");
@@ -649,7 +656,7 @@ export function StickFightGame() {
       }
     }
     
-    // Smart jumping & climbing triggers
+    // Önündeki engelleri veya platform yüksekliklerini algıla
     const nextX = bot.pos.x + Math.sign(dx) * 35;
     let wallAhead = false;
     for (const pf of s.platforms) {
@@ -661,29 +668,29 @@ export function StickFightGame() {
     
     const wantsToJumpUp = dy < -45 && Math.abs(finalTargetX - bot.pos.x) < 220;
     const tryingToMove = s.keys.has("ArrowLeft") || s.keys.has("ArrowRight");
+    // Sıkışma Kontrolü: Bot hareket etmeye çalışıyor ama hızı sıfıra yakınsa (bir engelle takıldıysa)
     const isStuck = tryingToMove && Math.abs(bot.vel.x) < 25;
     
-    // Jump to climb or clear obstacles
+    // Platform tırmanma, sıkışma veya engel aşma durumunda zıpla
     if ((wallAhead || wantsToJumpUp || isStuck) && bot.onGround && Math.random() < 0.22) {
       s.keysPressed.add("ArrowUp");
       s.keys.add("ArrowUp");
     }
     
-    // Double jump if target is very high up or during aerial combat
+    // Çift Zıplama (Double Jump): Hedef çok yukarıdaysa havada ekstra zıpla
     if (!bot.onGround && bot.vel.y > -50 && dy < -90 && Math.random() < 0.12) {
       s.keysPressed.add("ArrowUp");
       s.keys.add("ArrowUp");
     }
     
-    // Tactical Combat Dashing (uses 30 stamina)
-    // Dash to initiate melee if player is at medium range, or dash backward if low health
+    // Taktiksel Dash Kaçış/Saldırı Mekanizması (stamina >= 50 ise)
     if (bot.stamina >= 50 && bot.dashCd <= 0 && Math.random() < 0.04) {
       if (!seekItem && !isRanged && directDist > 140 && directDist < 260) {
-        // Melee initiation dash! (Dash forward)
+        // Yakın dövüş silahı varken mesafeyi hızlı kapatıp saldırmak için ileri dash at
         s.keysPressed.add("/");
         s.keys.add("/");
       } else if (bot.hp < 40 && directDist < 120) {
-        // Defensive retreat dash! Run away and dash backwards
+        // Canı çok azsa ve rakip yakınsa hızla geriye doğru dash atarak kaç
         s.keys.delete("ArrowLeft");
         s.keys.delete("ArrowRight");
         if (dx > 0) {
@@ -696,7 +703,7 @@ export function StickFightGame() {
       }
     }
     
-    // Projectile detection & evasion/blocking
+    // Gelen Mermileri/Roketleri Algılama ve Savuşturma Sistemi
     const incomingBullet = s.bullets.find(b => 
       b.owner === 0 && 
       Math.sign(b.vel.x) === Math.sign(bot.pos.x - b.pos.x) && 
@@ -705,25 +712,25 @@ export function StickFightGame() {
     );
     
     if (incomingBullet && Math.random() < 0.70) {
-      // Bullet time reflex trigger! Hold Zen Focus (,) to slow time
+      // Mermi yakındaysa mermi zamanı refleksini tetikle (Zen Focus'a basarak zamanı yavaşlat)
       s.keys.add(",");
       
       const reaction = Math.random();
       if (reaction < 0.45) {
-        // Block the shot!
+        // Gelen atışı kalkanla engelle (Block yap)
         s.keys.add("ArrowDown");
       } else if (reaction < 0.85 && bot.onGround) {
-        // Jump over the bullet!
+        // Merminin üzerinden zıpla
         s.keysPressed.add("ArrowUp");
         s.keys.add("ArrowUp");
       } else if (bot.stamina >= 30) {
-        // Dash away!
+        // Hızlıca dash atarak mermiden sıyrıl
         s.keysPressed.add("/");
         s.keys.add("/");
       }
     }
     
-    // Attack ranges and weapon action
+    // Silah tipine göre saldırı menzili belirleme
     let attackRange = 55;
     if (bot.weapon.kind === "katana") attackRange = 85;
     else if (bot.weapon.kind === "spear") attackRange = 120;
@@ -733,8 +740,9 @@ export function StickFightGame() {
     const facingTarget = Math.sign(dx) === bot.facing;
     const closeEnough = Math.abs(dx) < attackRange && Math.abs(dy) < 80;
     
+    // Menzil uygunsa saldırı tuşunu tetikle
     if (closeEnough && facingTarget) {
-      // Quick combo timing: Katana combo chaining attacks fast
+      // Katana taşırken seri kombinasyon yapması için saldırı hızını artır
       const rate = bot.weapon.kind === "katana" ? 0.35 : (isRanged ? 0.08 : 0.20);
       if (Math.random() < rate) {
         s.keysPressed.add(".");
@@ -742,7 +750,7 @@ export function StickFightGame() {
       }
     }
     
-    // React block to player's melee swings
+    // Rakip yakın menzilde vururken siper al (Reaktif Blok yap)
     const targetAttacking = target.attackTimer > 0 && Math.abs(dx) < 120 && Math.abs(dy) < 80;
     if (targetAttacking && Math.random() < 0.85) {
       s.keys.add("ArrowDown");
