@@ -357,6 +357,20 @@ export function StickFightGame() {
   const [p2Class, setP2Class] = useState<PlayerClass>("ninja");
   const [mode, setMode] = useState<"pvp" | "vs_ai" | "training">("vs_ai");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect touch/mobile device on mount
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(
+        navigator.maxTouchPoints > 0 ||
+        (window.matchMedia && window.matchMedia("(pointer: coarse)").matches)
+      );
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // Persistent game state in a ref so React doesn't re-render every frame
   const stateRef = useRef({
@@ -2448,7 +2462,7 @@ export function StickFightGame() {
 
   return (
     <div
-      className="relative w-full h-full min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden select-none"
+      className="relative w-screen h-screen flex flex-col items-center justify-center overflow-hidden select-none"
       style={{
         background: "linear-gradient(to bottom, #1a237e 0%, #880e4f 55%, #ff5722 100%)",
       }}
@@ -2528,105 +2542,135 @@ export function StickFightGame() {
           }}
         />
       ) : (
-        <div className="relative select-none">
-          <canvas
-            ref={canvasRef}
-            width={W}
-            height={H}
-            className="border-4 border-[#5d4037] rounded-xl shadow-2xl"
-            style={{
-              maxWidth: "100vw",
-              maxHeight: "100vh",
-              boxShadow: "0 10px 40px rgba(93, 64, 55, 0.35)",
-            }}
-          />
+        <div className="relative select-none flex flex-col items-center">
+          <div className="relative">
+            <canvas
+              ref={canvasRef}
+              width={W}
+              height={H}
+              className="border-4 border-[#5d4037] rounded-xl shadow-2xl bg-[#1b1b1b]"
+              style={{
+                width: "100vw",
+                height: "100vh",
+                boxShadow: "0 10px 40px rgba(93, 64, 55, 0.35)",
+              }}
+            />
           
-          {/* Sanal Dokunmatik Kontroller Overlay (Mobil/Tablet Görünümünde Aktif) */}
-          <div className="absolute inset-0 pointer-events-none md:hidden select-none">
-            {/* Yönlendirme D-Pad Grubu (Alt-Sol) */}
-            <div className="absolute bottom-4 left-4 flex gap-4 pointer-events-auto">
-              <button
-                onTouchStart={(e) => handleTouchStart("a", e)}
-                onTouchEnd={(e) => handleTouchEnd("a", e)}
-                onTouchCancel={(e) => handleTouchEnd("a", e)}
-                className="w-16 h-16 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex items-center justify-center font-black text-2xl shadow-lg select-none"
-                style={{ touchAction: "none" }}
-              >
-                ◀
-              </button>
-              <button
-                onTouchStart={(e) => handleTouchStart("d", e)}
-                onTouchEnd={(e) => handleTouchEnd("d", e)}
-                onTouchCancel={(e) => handleTouchEnd("d", e)}
-                className="w-16 h-16 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex items-center justify-center font-black text-2xl shadow-lg select-none"
-                style={{ touchAction: "none" }}
-              >
-                ▶
-              </button>
-            </div>
 
-            {/* Eylem Düğmeleri Grubu (Alt-Sağ) */}
-            <div className="absolute bottom-4 right-4 w-48 h-48 pointer-events-auto">
-              {/* Zıplama Düğmesi (Üst) */}
-              <button
-                onTouchStart={(e) => handleTouchStart("w", e)}
-                onTouchEnd={(e) => handleTouchEnd("w", e)}
-                onTouchCancel={(e) => handleTouchEnd("w", e)}
-                className="absolute top-0 right-16 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+          {/* Fullscreen toggle button */}
+          <button
+            onClick={() => {
+              const canvas = canvasRef.current;
+              if (!canvas) return;
+              if (!document.fullscreenElement) {
+                canvas.requestFullscreen?.();
+              } else {
+                document.exitFullscreen?.();
+              }
+            }}
+            className="absolute top-2 right-2 z-10 px-3 py-1 text-sm font-medium bg-[#fcfaf2]/80 border-2 border-[#5d4037] rounded-md shadow-md hover:bg-[#efebe9] transition-colors"
+            title="Toggle Fullscreen"
+          >
+            ⛶
+          </button>
+          {/* ── Mobile Touch Controls (only on touch devices) ── */}
+          {isMobile && (
+            <>
+              {/* D-Pad (Sol Alt) — Hareket: sol/sağ/zıpla */}
+              <div
+                className="absolute bottom-4 left-4 w-44 h-44 pointer-events-auto"
                 style={{ touchAction: "none" }}
               >
-                <span>▲</span>
-                <span className="text-[8px] scale-90">ZIPLA</span>
-              </button>
+                {/* SOL */}
+                <button
+                  onTouchStart={(e) => handleTouchStart("a", e)}
+                  onTouchEnd={(e) => handleTouchEnd("a", e)}
+                  onTouchCancel={(e) => handleTouchEnd("a", e)}
+                  className="absolute top-14 left-0 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-sm shadow-lg select-none"
+                  style={{ touchAction: "none" }}
+                >
+                  ◀
+                </button>
 
-              {/* Saldırı Düğmesi (Orta Sağ) */}
-              <button
-                onTouchStart={(e) => handleTouchStart("f", e)}
-                onTouchEnd={(e) => handleTouchEnd("f", e)}
-                onTouchCancel={(e) => handleTouchEnd("f", e)}
-                className="absolute top-14 right-0 w-16 h-16 rounded-full bg-[#d84315]/45 border-2 border-[#5d4037] text-[#fcfaf2] active:bg-[#d84315]/80 flex flex-col items-center justify-center font-black text-xs shadow-lg select-none"
-                style={{ touchAction: "none" }}
-              >
-                <span>⚔</span>
-                <span className="text-[8px] scale-90">VUR</span>
-              </button>
+                {/* YUKARI / ZIPLA */}
+                <button
+                  onTouchStart={(e) => handleTouchStart("w", e)}
+                  onTouchEnd={(e) => handleTouchEnd("w", e)}
+                  onTouchCancel={(e) => handleTouchEnd("w", e)}
+                  className="absolute top-0 left-14 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                  style={{ touchAction: "none" }}
+                >
+                  <span>▲</span>
+                  <span className="text-[7px]">ZIT</span>
+                </button>
 
-              {/* Blok Yapma/Çömelme Düğmesi (Alt) */}
-              <button
-                onTouchStart={(e) => handleTouchStart("s", e)}
-                onTouchEnd={(e) => handleTouchEnd("s", e)}
-                onTouchCancel={(e) => handleTouchEnd("s", e)}
-                className="absolute bottom-0 right-16 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
-                style={{ touchAction: "none" }}
-              >
-                <span>▼</span>
-                <span className="text-[8px] scale-90">BLOK</span>
-              </button>
+                {/* SAĞ */}
+                <button
+                  onTouchStart={(e) => handleTouchStart("d", e)}
+                  onTouchEnd={(e) => handleTouchEnd("d", e)}
+                  onTouchCancel={(e) => handleTouchEnd("d", e)}
+                  className="absolute top-14 left-28 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-sm shadow-lg select-none"
+                  style={{ touchAction: "none" }}
+                >
+                  ▶
+                </button>
 
-              {/* Dash / Kaçış Düğmesi (Sol) */}
-              <button
-                onTouchStart={(e) => handleTouchStart("shift", e)}
-                onTouchEnd={(e) => handleTouchEnd("shift", e)}
-                onTouchCancel={(e) => handleTouchEnd("shift", e)}
-                className="absolute top-14 left-0 w-14 h-14 rounded-full bg-[#4caf50]/45 border-2 border-[#5d4037] text-[#fcfaf2] active:bg-[#4caf50]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
-                style={{ touchAction: "none" }}
-              >
-                <span>💨</span>
-                <span className="text-[8px] scale-90">DASH</span>
-              </button>
+                {/* ÇÖMEL / BLOK */}
+                <button
+                  onTouchStart={(e) => handleTouchStart("s", e)}
+                  onTouchEnd={(e) => handleTouchEnd("s", e)}
+                  onTouchCancel={(e) => handleTouchEnd("s", e)}
+                  className="absolute bottom-0 left-14 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                  style={{ touchAction: "none" }}
+                >
+                  <span>▼</span>
+                  <span className="text-[7px]">BLK</span>
+                </button>
+              </div>
 
-              {/* Zen Odaklanma Düğmesi (İç Sol) */}
-              <button
-                onTouchStart={(e) => handleTouchStart("e", e)}
-                onTouchEnd={(e) => handleTouchEnd("e", e)}
-                onTouchCancel={(e) => handleTouchEnd("e", e)}
-                className="absolute top-14 left-16 w-12 h-12 rounded-full bg-[#ffb300]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#ffb300]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+              {/* Eylem Düğmeleri (Sağ Alt) */}
+              <div
+                className="absolute bottom-4 right-4 w-48 h-48 pointer-events-auto"
                 style={{ touchAction: "none" }}
               >
-                <span>⌛</span>
-                <span className="text-[7px] scale-90">ODAK</span>
-              </button>
-            </div>
+                {/* SALDIRI */}
+                <button
+                  onTouchStart={(e) => handleTouchStart("f", e)}
+                  onTouchEnd={(e) => handleTouchEnd("f", e)}
+                  onTouchCancel={(e) => handleTouchEnd("f", e)}
+                  className="absolute top-14 right-0 w-16 h-16 rounded-full bg-[#d84315]/55 border-2 border-[#5d4037] text-[#fcfaf2] active:bg-[#d84315]/90 flex flex-col items-center justify-center font-black text-xs shadow-lg select-none"
+                  style={{ touchAction: "none" }}
+                >
+                  <span>⚔</span>
+                  <span className="text-[8px]">VUR</span>
+                </button>
+
+                {/* DASH */}
+                <button
+                  onTouchStart={(e) => handleTouchStart("shift", e)}
+                  onTouchEnd={(e) => handleTouchEnd("shift", e)}
+                  onTouchCancel={(e) => handleTouchEnd("shift", e)}
+                  className="absolute top-0 right-0 w-14 h-14 rounded-full bg-[#4caf50]/55 border-2 border-[#5d4037] text-[#fcfaf2] active:bg-[#4caf50]/90 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                  style={{ touchAction: "none" }}
+                >
+                  <span>💨</span>
+                  <span className="text-[8px]">DASH</span>
+                </button>
+
+                {/* ODAK / BULLET TIME */}
+                <button
+                  onTouchStart={(e) => handleTouchStart("e", e)}
+                  onTouchEnd={(e) => handleTouchEnd("e", e)}
+                  onTouchCancel={(e) => handleTouchEnd("e", e)}
+                  className="absolute top-0 right-16 w-14 h-14 rounded-full bg-[#ffb300]/55 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#ffb300]/90 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                  style={{ touchAction: "none" }}
+                >
+                  <span>⌛</span>
+                  <span className="text-[7px]">ODAK</span>
+                </button>
+              </div>
+            </>
+          )}
           </div>
 
           <button
@@ -2653,24 +2697,16 @@ function StartScreen({
   onSelectMode: (mode: "pvp" | "vs_ai" | "training") => void;
 }) {
   return (
-    <div className="relative flex flex-col items-center gap-6 p-8 text-center max-w-2xl bg-[#fcfaf2]/95 border-4 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden">
-
+    <div
+      className="relative flex items-center justify-center w-full h-full"
+      style={{ minHeight: "100dvh" }}
+    >
       <style>{`
         @keyframes leafDrift {
-          0% {
-            transform: translateY(-20px) translateX(0) rotate(45deg);
-            opacity: 0;
-          }
-          10% {
-            opacity: 0.35;
-          }
-          90% {
-            opacity: 0.35;
-          }
-          100% {
-            transform: translateY(500px) translateX(-140px) rotate(360deg);
-            opacity: 0;
-          }
+          0%   { transform: translateY(-20px) translateX(0) rotate(45deg); opacity: 0; }
+          10%  { opacity: 0.35; }
+          90%  { opacity: 0.35; }
+          100% { transform: translateY(500px) translateX(-140px) rotate(360deg); opacity: 0; }
         }
         .animate-leaf-drift {
           animation-name: leafDrift;
@@ -2679,105 +2715,112 @@ function StartScreen({
         }
       `}</style>
 
-      <div className="relative z-10">
-        <h1
-          className="font-sans font-black text-5xl md:text-6xl tracking-tight drop-shadow-md"
-          style={{
-            background: "linear-gradient(135deg, #2e7d32, #d84315)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            textShadow: "2px 2px 0px rgba(93, 64, 55, 0.15)",
-          }}
-        >
-          WILDWOOD STRIKE
-        </h1>
-        <p className="mt-3 text-[#5d4037] font-bold uppercase tracking-[0.25em] text-[10px] md:text-xs">
-          Tactical Action · Zen Focus · Mobile Controls & AI
-        </p>
-      </div>
+      {/* Card — scrollable so it always fits */}
+      <div className="relative z-10 w-full max-w-2xl mx-4 bg-[#fcfaf2]/95 border-4 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md overflow-y-auto"
+        style={{ maxHeight: "95dvh" }}
+      >
+        {/* ── Portrait layout: single column / Landscape: two columns ── */}
+        <div className="flex flex-col landscape:flex-row landscape:items-start gap-0">
 
-      {/* AI Difficulty Level Selector */}
-      <div className="relative z-10 w-full max-w-sm bg-[#efebe9]/90 border border-[#d7ccc8] rounded-xl p-3 shadow-inner">
-        <div className="text-[10px] font-bold text-[#5d4037] uppercase tracking-wider mb-2">
-          Bot Difficulty Level (Zorluk Seviyesi)
-        </div>
-        <div className="flex gap-2">
-          {[
-            { id: "easy", name: "Easy", color: "bg-[#81c784] border-[#66bb6a] text-white" },
-            { id: "medium", name: "Medium", color: "bg-[#ffb74d] border-[#ffa726] text-[#5d4037]" },
-            { id: "hard", name: "Hard", color: "bg-[#e57373] border-[#ef5350] text-white" },
-          ].map((d) => {
-            const active = difficulty === d.id;
-            return (
-              <button
-                key={d.id}
-                onClick={() => {
-                  sound.playBlock();
-                  onSelectDifficulty(d.id as any);
+          {/* LEFT COLUMN — title + action buttons */}
+          <div className="flex flex-col items-center gap-3 p-5 landscape:p-4 landscape:w-1/2 landscape:border-r landscape:border-[#d7ccc8]">
+            {/* Title */}
+            <div className="text-center">
+              <h1
+                className="font-sans font-black text-4xl landscape:text-3xl tracking-tight drop-shadow-md leading-none"
+                style={{
+                  background: "linear-gradient(135deg, #2e7d32, #d84315)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
                 }}
-                className={`flex-1 py-1.5 px-2 text-xs font-bold uppercase tracking-wider rounded border-b-2 transition-all duration-150 ${
-                  active
-                    ? `${d.color} scale-105 shadow-md border-b-0 translate-y-0.5`
-                    : "bg-[#fcfaf2] border-[#d7ccc8] text-[#8d6e63] opacity-60 hover:opacity-90"
-                }`}
               >
-                {d.name}
+                WILDWOOD STRIKE
+              </h1>
+              <p className="mt-1 text-[#5d4037] font-bold uppercase tracking-[0.2em] text-[9px]">
+                Tactical Action · Zen Focus · Mobile &amp; AI
+              </p>
+            </div>
+
+            {/* Difficulty selector */}
+            <div className="w-full bg-[#efebe9]/90 border border-[#d7ccc8] rounded-xl p-2.5 shadow-inner">
+              <div className="text-[9px] font-bold text-[#5d4037] uppercase tracking-wider mb-1.5">
+                Zorluk Seviyesi
+              </div>
+              <div className="flex gap-1.5">
+                {[
+                  { id: "easy",   name: "Kolay",  color: "bg-[#81c784] border-[#66bb6a] text-white" },
+                  { id: "medium", name: "Orta",   color: "bg-[#ffb74d] border-[#ffa726] text-[#5d4037]" },
+                  { id: "hard",   name: "Zor",    color: "bg-[#e57373] border-[#ef5350] text-white" },
+                ].map((d) => {
+                  const active = difficulty === d.id;
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() => { sound.playBlock(); onSelectDifficulty(d.id as any); }}
+                      className={`flex-1 py-1.5 px-1 text-[11px] font-bold uppercase tracking-wide rounded border-b-2 transition-all duration-150 ${
+                        active
+                          ? `${d.color} scale-105 shadow-md border-b-0 translate-y-0.5`
+                          : "bg-[#fcfaf2] border-[#d7ccc8] text-[#8d6e63] opacity-60 hover:opacity-90"
+                      }`}
+                    >
+                      {d.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Play buttons */}
+            <div className="flex flex-col gap-2 w-full">
+              <button
+                onClick={() => { sound.init(); onSelectMode("vs_ai"); }}
+                className="w-full py-3 font-sans font-extrabold text-sm uppercase tracking-wider rounded-lg bg-gradient-to-r from-[#d84315] to-[#ff7043] border-b-4 border-[#bf360c] text-white hover:scale-105 active:scale-95 transition-all shadow-md"
+              >
+                🤖 Bota Karşı Oyna
               </button>
-            );
-          })}
-        </div>
-      </div>
+              <button
+                onClick={() => { sound.init(); onSelectMode("training"); }}
+                className="w-full py-2.5 font-sans font-extrabold text-sm uppercase tracking-wider rounded-lg bg-gradient-to-r from-[#78909c] to-[#b0bec5] border-b-4 border-[#546e7a] text-[#263238] hover:scale-105 active:scale-95 transition-all shadow-md"
+              >
+                🎯 Antrenman
+              </button>
+            </div>
+          </div>
 
-      <div className="relative z-10 flex flex-col sm:flex-row gap-4 w-full justify-center my-2">
-        <button
-          onClick={() => { sound.init(); onSelectMode("vs_ai"); }}
-          className="px-8 py-3.5 font-sans font-extrabold text-base uppercase tracking-wider rounded-lg bg-gradient-to-r from-[#d84315] to-[#ff7043] border-b-4 border-[#bf360c] text-white hover:scale-105 active:scale-95 transition-all shadow-[#d84315]/30 hover:shadow-[#d84315]/50 shadow-md"
-        >
-          Fight Wild Bot (AI)
-        </button>
-        <button
-          onClick={() => { sound.init(); onSelectMode("training"); }}
-          className="px-8 py-3.5 font-sans font-extrabold text-base uppercase tracking-wider rounded-lg bg-gradient-to-r from-[#78909c] to-[#b0bec5] border-b-4 border-[#546e7a] text-[#263238] hover:scale-105 active:scale-95 transition-all shadow-[#78909c]/30 hover:shadow-[#78909c]/50 shadow-md"
-        >
-          Training Range
-        </button>
-      </div>
-
-      <div className="relative z-10 flex justify-center w-full">
-        <div className="w-full max-w-md bg-[#efebe9]/80 border border-[#d7ccc8] rounded-xl p-4 shadow-inner">
-          <h3 className="font-sans font-bold text-xs uppercase text-[#5d4037] tracking-wider mb-3 pb-1 border-b border-[#d7ccc8]">
-            Controls Reference
-          </h3>
-          <div className="flex flex-col gap-2">
-            {[
-              { act: "Move / Walk", keys: ["A", "D"], mob: "Left/Right arrows" },
-              { act: "Jump / Double", keys: ["W"], mob: "ZIPLA button" },
-              { act: "Crouch / Block", keys: ["S"], mob: "BLOK button" },
-              { act: "Dash / Evade", keys: ["Shift", "Q"], mob: "DASH button" },
-              { act: "Attack / Strike", keys: ["F"], mob: "VUR button" },
-              { act: "Zen Focus", keys: ["E"], mob: "ODAK button" },
-            ].map((row, idx) => (
-              <div key={idx} className="flex justify-between items-center text-xs">
-                <span className="text-[#8d6e63] font-semibold">{row.act}</span>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex gap-1">
+          {/* RIGHT COLUMN — controls reference */}
+          <div className="flex flex-col gap-2 p-5 landscape:p-4 landscape:w-1/2">
+            <h3 className="font-sans font-bold text-xs uppercase text-[#5d4037] tracking-wider pb-1 border-b border-[#d7ccc8]">
+              Kontroller
+            </h3>
+            <div className="flex flex-col gap-1.5">
+              {[
+                { act: "Hareket",  keys: ["A","D"], mob: "◀ ▶ tuşları" },
+                { act: "Zıpla",    keys: ["W"],     mob: "▲ butonu" },
+                { act: "Blok",     keys: ["S"],     mob: "▼ butonu" },
+                { act: "Dash",     keys: ["Shift"],  mob: "💨 butonu" },
+                { act: "Vur",      keys: ["F"],     mob: "⚔ butonu" },
+                { act: "Odak",     keys: ["E"],     mob: "⌛ butonu" },
+              ].map((row, idx) => (
+                <div key={idx} className="flex justify-between items-center text-[11px]">
+                  <span className="text-[#8d6e63] font-semibold">{row.act}</span>
+                  <div className="flex items-center gap-1">
                     {row.keys.map((k, ki) => (
                       <kbd key={ki} className="px-1.5 py-0.5 rounded bg-[#fcfaf2] border border-[#5d4037]/30 font-mono text-[9px] font-bold shadow-sm text-[#3e2723]">
                         {k}
                       </kbd>
                     ))}
+                    <span className="text-[9px] text-[#5d4037]/50 font-sans">/ {row.mob}</span>
                   </div>
-                  <span className="text-[10px] text-[#5d4037]/50 font-sans">or {row.mob}</span>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <p className="text-[9px] text-[#8d6e63] leading-relaxed mt-1">
+              Blok yapmak hasarı %80 azaltır. Çift zıpla destekler. Silah topla!
+            </p>
           </div>
+
         </div>
       </div>
-
-      <p className="relative z-10 text-[10px] md:text-xs text-[#8d6e63] max-w-md mt-2 leading-relaxed">
-        Collect wooden scroll packages containing items. Blocking reduces damage by 80% but drains stamina. Stun stars appear on shield break.
-      </p>
     </div>
   );
 }
@@ -2799,56 +2842,72 @@ function CharacterSelectScreen({
   onBack: () => void;
   onFight: () => void;
 }) {
-  const renderClassBox = (pNum: number, currentClass: PlayerClass, onSelect: (c: PlayerClass) => void) => {
+  const renderClassBox = (pNum: number, currentClass: PlayerClass, onSelect: (c: PlayerClass) => void, isBot = false) => {
     const classesList: Array<{ id: PlayerClass; name: string; color: string; desc: string; stats: string[] }> = [
       {
         id: "ninja",
-        name: "Leaf Ninja",
+        name: "Yaprak Ninja",
         color: "#2e7d32",
-        desc: "Agile tree-runner. High speed and swift dashes.",
-        stats: ["HP: 100", "Speed: 105%", "Jump Height: 105%", "Dash Cooldown: -15%"],
+        desc: "Çevik koşucu. Yüksek hız, hızlı dash.",
+        stats: ["HP: 100", "Hız: +5%", "Çift Zıplama", "Dash CD: -15%"],
       },
       {
         id: "samurai",
-        name: "Ember Samurai",
+        name: "Kor Samurai",
         color: "#d84315",
-        desc: "Fiery swordmaster. Strong combos and fast stamina recovery.",
-        stats: ["HP: 100", "Stamina Regen: +10%", "Katana damage: +15%", "Stance: Balanced"],
+        desc: "Güçlü combo ve hızlı stamina yenileme.",
+        stats: ["HP: 100", "Stamina: +10%", "Katana: +15%", "Dengeli Duruş"],
       },
       {
         id: "warden",
-        name: "Stone Warden",
+        name: "Taş Gardiyan",
         color: "#78909c",
-        desc: "Sturdy forest protector. Massive health and passive damage reduction.",
-        stats: ["HP: 125", "Defense: +15% Damage Reduction", "Speed: 90%", "Stance: Heavy Guard"],
+        desc: "Sağlam savunucu. Yüksek HP ve pasif hasar azaltma.",
+        stats: ["HP: 125", "Hasar -15%", "Hız: -10%", "Ağır Koruma"],
       },
     ];
 
+    if (isBot) {
+      return (
+        <div className="flex flex-col gap-1 bg-[#fcfaf2]/90 border-2 border-[#5d4037] p-3 rounded-xl shadow-md w-full">
+          <h2 className="font-sans font-bold text-sm text-[#5d4037] border-b border-[#d7ccc8] pb-1">
+            PLAYER 2 (BOT / HEDEF)
+          </h2>
+          <div className="flex items-center gap-2 py-2">
+            <div className="font-sans font-bold text-sm text-[#78909c]">Taş Gardiyan Manken</div>
+          </div>
+          <p className="text-[10px] text-[#8d6e63] leading-relaxed">
+            Yüksek HP ve pasif savunma ile combo egzersizi için ideal.
+          </p>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex flex-col gap-4 bg-[#fcfaf2]/90 border-2 border-[#5d4037] p-5 rounded-xl shadow-md w-full max-w-sm">
-        <h2 className="font-sans font-bold text-lg text-[#5d4037] border-b-2 border-[#d7ccc8] pb-1">
-          PLAYER {pNum} {mode === "vs_ai" && pNum === 2 ? "(BOT)" : ""}
+      <div className="flex flex-col gap-1.5 bg-[#fcfaf2]/90 border-2 border-[#5d4037] p-3 rounded-xl shadow-md w-full">
+        <h2 className="font-sans font-bold text-sm text-[#5d4037] border-b border-[#d7ccc8] pb-1">
+          PLAYER {pNum}
         </h2>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           {classesList.map((cl) => {
             const selected = currentClass === cl.id;
             return (
               <button
                 key={cl.id}
                 onClick={() => onSelect(cl.id)}
-                className={`p-3 rounded-lg border text-left transition-all hover:scale-[1.02] ${
+                className={`p-2 rounded-lg border text-left transition-all hover:scale-[1.01] ${
                   selected ? "border-[#5d4037] bg-[#efebe9]" : "border-[#d7ccc8] bg-transparent"
                 }`}
-                style={{ borderLeftWidth: selected ? "6px" : "1px", borderLeftColor: cl.color }}
+                style={{ borderLeftWidth: selected ? "5px" : "1px", borderLeftColor: cl.color }}
               >
-                <div className="font-sans font-bold text-sm" style={{ color: cl.color }}>
+                <div className="font-sans font-bold text-xs" style={{ color: cl.color }}>
                   {cl.name}
                 </div>
-                <div className="text-xs text-[#8d6e63] mt-0.5 leading-tight">{cl.desc}</div>
+                <div className="text-[10px] text-[#8d6e63] leading-tight">{cl.desc}</div>
                 {selected && (
-                  <ul className="mt-2 grid grid-cols-2 gap-x-2 text-[10px] font-mono text-[#3e2723] bg-[#fcfaf2]/80 p-1.5 rounded border border-[#d7ccc8]">
-                    {cl.stats.map((s, idx) => <li key={idx}>• {s}</li>)}
-                  </ul>
+                  <div className="mt-1 grid grid-cols-2 gap-x-1 gap-y-0.5 text-[9px] font-mono text-[#3e2723] bg-[#fcfaf2]/80 px-1.5 py-1 rounded border border-[#d7ccc8]">
+                    {cl.stats.map((s, idx) => <span key={idx}>• {s}</span>)}
+                  </div>
                 )}
               </button>
             );
@@ -2859,49 +2918,57 @@ function CharacterSelectScreen({
   };
 
   return (
-    <div className="flex flex-col items-center gap-6 p-6 text-center max-w-4xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md w-full">
-      <div>
-        <h1 className="font-sans font-black text-4xl tracking-tight text-[#5d4037]">
-          SELECT CHARACTER CLASS
-        </h1>
-        <p className="text-[#8d6e63] uppercase tracking-[0.2em] text-[10px] mt-1">
-          Choose your signature stats and archetype
-        </p>
-      </div>
+    <div
+      className="relative flex items-center justify-center w-full h-full"
+      style={{ minHeight: "100dvh" }}
+    >
+      {/* Scrollable card */}
+      <div
+        className="relative z-10 w-full max-w-3xl mx-3 bg-[#fcfaf2]/95 border-4 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md overflow-y-auto"
+        style={{ maxHeight: "95dvh" }}
+      >
+        {/* Inner: portrait = column, landscape = row */}
+        <div className="flex flex-col landscape:flex-row landscape:items-start">
 
-      <div className="flex flex-col md:flex-row gap-6 w-full justify-center">
-        {renderClassBox(1, p1Class, onSelectP1Class)}
-        {mode === "training" ? (
-          <div className="flex flex-col gap-4 bg-[#fcfaf2]/90 border-2 border-[#5d4037] p-5 rounded-xl shadow-md w-full max-w-sm justify-center items-center">
-            <h2 className="font-sans font-bold text-lg text-[#5d4037] border-b-2 border-[#d7ccc8] pb-1 w-full text-center">
-              PLAYER 2 (TARGET)
-            </h2>
-            <div className="py-6 text-center">
-              <div className="font-sans font-bold text-lg text-[#78909c]">Stone Warden Dummy</div>
-              <p className="text-xs text-[#8d6e63] max-w-xs mt-2">
-                Training dummies are assigned as Stone Wardens with high HP (+25%) and passive defense to help test mace combos.
+          {/* HEADER + FIGHT BUTTON — top in portrait, left stripe in landscape */}
+          <div className="flex flex-col items-center gap-2 p-4 landscape:p-3 landscape:w-56 landscape:shrink-0 landscape:border-r landscape:border-[#d7ccc8] landscape:justify-between landscape:h-full">
+            <div className="text-center">
+              <h1 className="font-sans font-black text-2xl landscape:text-xl tracking-tight text-[#5d4037] leading-tight">
+                KARAKTER SEÇ
+              </h1>
+              <p className="text-[#8d6e63] uppercase tracking-[0.15em] text-[8px] mt-0.5">
+                Sınıfını seç
               </p>
             </div>
-          </div>
-        ) : (
-          renderClassBox(2, p2Class, onSelectP2Class)
-        )}
-      </div>
 
-      <div className="flex gap-4 mt-2">
-        <button
-          onClick={onBack}
-          className="px-6 py-2.5 font-sans font-bold uppercase tracking-wider rounded border-2 border-[#5d4037] text-[#5d4037] hover:bg-[#efebe9] transition-colors"
-        >
-          Back
-        </button>
-        <button
-          onClick={() => { sound.init(); onFight(); }}
-          className="px-8 py-2.5 font-sans font-bold uppercase tracking-wider text-white rounded bg-[#2e7d32] border-b-4 border-[#1b5e20] hover:scale-105 active:scale-95 transition-transform"
-          style={{ boxShadow: "0 4px 12px rgba(46, 125, 50, 0.3)" }}
-        >
-          Enter the forest
-        </button>
+            {/* Buttons */}
+            <div className="flex flex-row landscape:flex-col gap-2 w-full justify-center mt-1">
+              <button
+                onClick={onBack}
+                className="flex-1 landscape:flex-none py-2 px-3 font-sans font-bold text-xs uppercase tracking-wider rounded border-2 border-[#5d4037] text-[#5d4037] hover:bg-[#efebe9] transition-colors"
+              >
+                ← Geri
+              </button>
+              <button
+                onClick={() => { sound.init(); onFight(); }}
+                className="flex-1 landscape:flex-none py-2 px-3 font-sans font-bold text-xs uppercase tracking-wider text-white rounded bg-[#2e7d32] border-b-4 border-[#1b5e20] hover:scale-105 active:scale-95 transition-transform shadow-md"
+                style={{ boxShadow: "0 4px 12px rgba(46, 125, 50, 0.3)" }}
+              >
+                ⚔ Ormanı Gir!
+              </button>
+            </div>
+          </div>
+
+          {/* CHARACTER BOXES */}
+          <div className="flex flex-col landscape:flex-row gap-3 p-4 landscape:p-3 flex-1">
+            {renderClassBox(1, p1Class, onSelectP1Class)}
+            {mode === "training"
+              ? renderClassBox(2, p2Class, onSelectP2Class, true)
+              : renderClassBox(2, p2Class, onSelectP2Class)
+            }
+          </div>
+
+        </div>
       </div>
     </div>
   );
