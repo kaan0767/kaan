@@ -1,6 +1,7 @@
 // WILDWOOD STRIKE — a tactical 2D medieval fighter
 // Canvas-rendered. Offline play vs AI. Bullet time. Weapon pickups.
 import { useEffect, useRef, useState } from "react";
+import bgImage from "./wildwood_bg.jpg";
 
 // Web Audio API Synthesized Sound Manager
 class SoundManager {
@@ -355,6 +356,7 @@ export function StickFightGame() {
   const [p1Class, setP1Class] = useState<PlayerClass>("ninja");
   const [p2Class, setP2Class] = useState<PlayerClass>("ninja");
   const [mode, setMode] = useState<"pvp" | "vs_ai" | "training">("vs_ai");
+  const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
 
   // Persistent game state in a ref so React doesn't re-render every frame
   const stateRef = useRef({
@@ -380,11 +382,13 @@ export function StickFightGame() {
     p1SelectedClass: "ninja" as PlayerClass,
     p2SelectedClass: "ninja" as PlayerClass,
     characterSelectActive: true,
+    difficulty: "medium" as "easy" | "medium" | "hard",
   });
 
   // Init level
   const initRound = () => {
     const s = stateRef.current;
+    s.difficulty = difficulty;
     s.bullets = [];
     s.particles = [];
     s.powerups = [];
@@ -792,6 +796,14 @@ export function StickFightGame() {
     
     const target = s.players[0]; // Hedef oyuncu (Player 1)
     if (target.hp <= 0) return;
+
+    // Zorluk Seviyesine Göre Davranış Ölçekleme
+    const diff = s.difficulty || "medium";
+    
+    // Kolay modda botun tepkilerini geciktirmek için %35 ihtimalle bu kareyi atla
+    if (diff === "easy" && Math.random() < 0.35) {
+      return;
+    }
     
     // Her karede botun bir önceki karedeki tüm girdi tuşlarını sıfırla
     s.keys.delete("ArrowLeft");
@@ -936,20 +948,23 @@ export function StickFightGame() {
     // Sıkışma Kontrolü: Bot hareket etmeye çalışıyor ama hızı sıfıra yakınsa (bir engelle takıldıysa)
     const isStuck = tryingToMove && Math.abs(bot.vel.x) < 25;
     
-    // Platform tırmanma, sıkışma veya engel aşma durumunda zıpla
-    if ((wallAhead || wantsToJumpUp || isStuck) && bot.onGround && Math.random() < 0.22) {
+    // Zorluğa göre platform zıplama oranları
+    const jumpRate = diff === "easy" ? 0.08 : (diff === "medium" ? 0.22 : 0.40);
+    if ((wallAhead || wantsToJumpUp || isStuck) && bot.onGround && Math.random() < jumpRate) {
       s.keysPressed.add("ArrowUp");
       s.keys.add("ArrowUp");
     }
     
-    // Çift Zıplama (Double Jump): Hedef çok yukarıdaysa havada ekstra zıpla
-    if (!bot.onGround && bot.vel.y > -50 && dy < -90 && Math.random() < 0.12) {
+    // Çift Zıplama (Double Jump): Zor seviyede bot havadayken de çok daha sık zıplar
+    const doubleJumpRate = diff === "easy" ? 0.04 : (diff === "medium" ? 0.12 : 0.28);
+    if (!bot.onGround && bot.vel.y > -50 && dy < -90 && Math.random() < doubleJumpRate) {
       s.keysPressed.add("ArrowUp");
       s.keys.add("ArrowUp");
     }
     
-    // Taktiksel Dash Kaçış/Saldırı Mekanizması (stamina >= 50 ise)
-    if (bot.stamina >= 50 && bot.dashCd <= 0 && Math.random() < 0.04) {
+    // Taktiksel Dash Kaçış/Saldırı Mekanizması (Zorluk seviyesine göre ihtimali değişir)
+    const dashChance = diff === "easy" ? 0.01 : (diff === "medium" ? 0.04 : 0.12);
+    if (bot.stamina >= 50 && bot.dashCd <= 0 && Math.random() < dashChance) {
       if (!seekItem && !isRanged && directDist > 140 && directDist < 260) {
         // Yakın dövüş silahı varken mesafeyi hızlı kapatıp saldırmak için ileri dash at
         s.keysPressed.add("/");
@@ -968,7 +983,7 @@ export function StickFightGame() {
       }
     }
     
-    // Gelen Mermileri/Roketleri Algılama ve Savuşturma Sistemi
+    // Gelen Mermileri/Roketleri Algılama ve Savuşturma Sistemi (Zor seviyede bot %95 savuşturur)
     const incomingBullet = s.bullets.find(b => 
       b.owner === 0 && 
       Math.sign(b.vel.x) === Math.sign(bot.pos.x - b.pos.x) && 
@@ -976,7 +991,8 @@ export function StickFightGame() {
       Math.abs(b.pos.y - bot.pos.y) < 70
     );
     
-    if (incomingBullet && Math.random() < 0.70) {
+    const bulletReactChance = diff === "easy" ? 0.25 : (diff === "medium" ? 0.70 : 0.95);
+    if (incomingBullet && Math.random() < bulletReactChance) {
       // Mermi yakındaysa mermi zamanı refleksini tetikle (Zen Focus'a basarak zamanı yavaşlat)
       s.keys.add(",");
       
@@ -1005,19 +1021,20 @@ export function StickFightGame() {
     const facingTarget = Math.sign(dx) === bot.facing;
     const closeEnough = Math.abs(dx) < attackRange && Math.abs(dy) < 80;
     
-    // Menzil uygunsa saldırı tuşunu tetikle
+    // Menzil uygunsa saldırı tuşunu tetikle (Zorluk seviyesine göre sıklığı değişir)
     if (closeEnough && facingTarget) {
-      // Katana taşırken seri kombinasyon yapması için saldırı hızını artır
-      const rate = bot.weapon.kind === "katana" ? 0.35 : (isRanged ? 0.08 : 0.20);
-      if (Math.random() < rate) {
+      const baseRate = bot.weapon.kind === "katana" ? 0.35 : (isRanged ? 0.08 : 0.20);
+      const rateMult = diff === "easy" ? 0.45 : (diff === "medium" ? 1.0 : 1.85);
+      if (Math.random() < baseRate * rateMult) {
         s.keysPressed.add(".");
         s.keys.add(".");
       }
     }
     
-    // Rakip yakın menzilde vururken siper al (Reaktif Blok yap)
+    // Rakip yakın menzilde vururken siper al (Reaktif Blok yap - Zor seviyede neredeyse hatasız)
+    const blockChance = diff === "easy" ? 0.30 : (diff === "medium" ? 0.85 : 0.98);
     const targetAttacking = target.attackTimer > 0 && Math.abs(dx) < 120 && Math.abs(dy) < 80;
-    if (targetAttacking && Math.random() < 0.85) {
+    if (targetAttacking && Math.random() < blockChance) {
       s.keys.add("ArrowDown");
     }
   }
@@ -2430,16 +2447,28 @@ export function StickFightGame() {
   void scoreTick;
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-gradient-to-br from-[#efebe9] to-[#d7ccc8] flex flex-col items-center justify-center p-4">
+    <div
+      className="relative w-full h-full min-h-screen flex flex-col items-center justify-center p-4"
+      style={{
+        backgroundImage: `linear-gradient(rgba(42, 33, 27, 0.45), rgba(42, 33, 27, 0.45)), url(${bgImage})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+      }}
+    >
       {!started ? (
-        <StartScreen onSelectMode={(selectedMode) => {
-          setMode(selectedMode);
-          if (selectedMode === "training") {
-            setP2Class("warden");
-          }
-          setStarted(true);
-          setCharSelectActive(true);
-        }} />
+        <StartScreen
+          difficulty={difficulty}
+          onSelectDifficulty={setDifficulty}
+          onSelectMode={(selectedMode) => {
+            setMode(selectedMode);
+            if (selectedMode === "training") {
+              setP2Class("warden");
+            }
+            setStarted(true);
+            setCharSelectActive(true);
+          }}
+        />
       ) : charSelectActive ? (
         <CharacterSelectScreen
           mode={mode}
@@ -2576,7 +2605,15 @@ export function StickFightGame() {
   );
 }
 
-function StartScreen({ onSelectMode }: { onSelectMode: (mode: "pvp" | "vs_ai" | "training") => void }) {
+function StartScreen({
+  difficulty,
+  onSelectDifficulty,
+  onSelectMode,
+}: {
+  difficulty: "easy" | "medium" | "hard";
+  onSelectDifficulty: (d: "easy" | "medium" | "hard") => void;
+  onSelectMode: (mode: "pvp" | "vs_ai" | "training") => void;
+}) {
   return (
     <div className="relative flex flex-col items-center gap-6 p-8 text-center max-w-2xl bg-[#fcfaf2]/90 border-4 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden">
       {/* Dynamic drifting leaf particles in the menu background */}
@@ -2646,6 +2683,38 @@ function StartScreen({ onSelectMode }: { onSelectMode: (mode: "pvp" | "vs_ai" | 
         <p className="mt-3 text-[#5d4037] font-bold uppercase tracking-[0.25em] text-[10px] md:text-xs">
           Tactical Action · Zen Focus · Mobile Controls & AI
         </p>
+      </div>
+
+      {/* AI Difficulty Level Selector */}
+      <div className="relative z-10 w-full max-w-sm bg-[#efebe9]/90 border border-[#d7ccc8] rounded-xl p-3 shadow-inner">
+        <div className="text-[10px] font-bold text-[#5d4037] uppercase tracking-wider mb-2">
+          Bot Difficulty Level (Zorluk Seviyesi)
+        </div>
+        <div className="flex gap-2">
+          {[
+            { id: "easy", name: "Easy", color: "bg-[#81c784] border-[#66bb6a] text-white" },
+            { id: "medium", name: "Medium", color: "bg-[#ffb74d] border-[#ffa726] text-[#5d4037]" },
+            { id: "hard", name: "Hard", color: "bg-[#e57373] border-[#ef5350] text-white" },
+          ].map((d) => {
+            const active = difficulty === d.id;
+            return (
+              <button
+                key={d.id}
+                onClick={() => {
+                  sound.playBlock();
+                  onSelectDifficulty(d.id as any);
+                }}
+                className={`flex-1 py-1.5 px-2 text-xs font-bold uppercase tracking-wider rounded border-b-2 transition-all duration-150 ${
+                  active
+                    ? `${d.color} scale-105 shadow-md border-b-0 translate-y-0.5`
+                    : "bg-[#fcfaf2] border-[#d7ccc8] text-[#8d6e63] opacity-60 hover:opacity-90"
+                }`}
+              >
+                {d.name}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="relative z-10 flex flex-col sm:flex-row gap-4 w-full justify-center my-2">
