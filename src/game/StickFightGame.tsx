@@ -114,7 +114,7 @@ export function StickFightGame() {
   const [charSelectActive, setCharSelectActive] = useState(true);
   const [p1Class, setP1Class] = useState<PlayerClass>("ninja");
   const [p2Class, setP2Class] = useState<PlayerClass>("ninja");
-  const [mode, setMode] = useState<"pvp" | "vs_ai" | "training">("pvp");
+  const [mode, setMode] = useState<"pvp" | "vs_ai" | "training">("vs_ai");
 
   // Persistent game state in a ref so React doesn't re-render every frame
   const stateRef = useRef({
@@ -2142,6 +2142,22 @@ export function StickFightGame() {
     }
   }
 
+  // Sanal Dokunmatik Kontroller (Mobil Cihazlar İçin Girdi Dinleyicileri)
+  const handleTouchStart = (key: string, e: React.TouchEvent) => {
+    e.preventDefault();
+    const s = stateRef.current;
+    if (!s.keys.has(key)) {
+      s.keysPressed.add(key);
+    }
+    s.keys.add(key);
+  };
+
+  const handleTouchEnd = (key: string, e: React.TouchEvent) => {
+    e.preventDefault();
+    const s = stateRef.current;
+    s.keys.delete(key);
+  };
+
   // void noop to use setScoreTick triggers
   void scoreTick;
 
@@ -2177,7 +2193,7 @@ export function StickFightGame() {
           }}
         />
       ) : (
-        <div className="relative">
+        <div className="relative select-none">
           <canvas
             ref={canvasRef}
             width={W}
@@ -2189,11 +2205,100 @@ export function StickFightGame() {
               boxShadow: "0 10px 40px rgba(93, 64, 55, 0.35)",
             }}
           />
+          
+          {/* Sanal Dokunmatik Kontroller Overlay (Mobil/Tablet Görünümünde Aktif) */}
+          <div className="absolute inset-0 pointer-events-none md:hidden select-none">
+            {/* Yönlendirme D-Pad Grubu (Alt-Sol) */}
+            <div className="absolute bottom-4 left-4 flex gap-4 pointer-events-auto">
+              <button
+                onTouchStart={(e) => handleTouchStart("a", e)}
+                onTouchEnd={(e) => handleTouchEnd("a", e)}
+                onTouchCancel={(e) => handleTouchEnd("a", e)}
+                className="w-16 h-16 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex items-center justify-center font-black text-2xl shadow-lg select-none"
+                style={{ touchAction: "none" }}
+              >
+                ◀
+              </button>
+              <button
+                onTouchStart={(e) => handleTouchStart("d", e)}
+                onTouchEnd={(e) => handleTouchEnd("d", e)}
+                onTouchCancel={(e) => handleTouchEnd("d", e)}
+                className="w-16 h-16 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex items-center justify-center font-black text-2xl shadow-lg select-none"
+                style={{ touchAction: "none" }}
+              >
+                ▶
+              </button>
+            </div>
+
+            {/* Eylem Düğmeleri Grubu (Alt-Sağ) */}
+            <div className="absolute bottom-4 right-4 w-48 h-48 pointer-events-auto">
+              {/* Zıplama Düğmesi (Üst) */}
+              <button
+                onTouchStart={(e) => handleTouchStart("w", e)}
+                onTouchEnd={(e) => handleTouchEnd("w", e)}
+                onTouchCancel={(e) => handleTouchEnd("w", e)}
+                className="absolute top-0 right-16 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                style={{ touchAction: "none" }}
+              >
+                <span>▲</span>
+                <span className="text-[8px] scale-90">ZIPLA</span>
+              </button>
+
+              {/* Saldırı Düğmesi (Orta Sağ) */}
+              <button
+                onTouchStart={(e) => handleTouchStart("f", e)}
+                onTouchEnd={(e) => handleTouchEnd("f", e)}
+                onTouchCancel={(e) => handleTouchEnd("f", e)}
+                className="absolute top-14 right-0 w-16 h-16 rounded-full bg-[#d84315]/45 border-2 border-[#5d4037] text-[#fcfaf2] active:bg-[#d84315]/80 flex flex-col items-center justify-center font-black text-xs shadow-lg select-none"
+                style={{ touchAction: "none" }}
+              >
+                <span>⚔</span>
+                <span className="text-[8px] scale-90">VUR</span>
+              </button>
+
+              {/* Blok Yapma/Çömelme Düğmesi (Alt) */}
+              <button
+                onTouchStart={(e) => handleTouchStart("s", e)}
+                onTouchEnd={(e) => handleTouchEnd("s", e)}
+                onTouchCancel={(e) => handleTouchEnd("s", e)}
+                className="absolute bottom-0 right-16 w-14 h-14 rounded-full bg-[#fcfaf2]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#fcfaf2]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                style={{ touchAction: "none" }}
+              >
+                <span>▼</span>
+                <span className="text-[8px] scale-90">BLOK</span>
+              </button>
+
+              {/* Dash / Kaçış Düğmesi (Sol) */}
+              <button
+                onTouchStart={(e) => handleTouchStart("shift", e)}
+                onTouchEnd={(e) => handleTouchEnd("shift", e)}
+                onTouchCancel={(e) => handleTouchEnd("shift", e)}
+                className="absolute top-14 left-0 w-14 h-14 rounded-full bg-[#4caf50]/45 border-2 border-[#5d4037] text-[#fcfaf2] active:bg-[#4caf50]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                style={{ touchAction: "none" }}
+              >
+                <span>💨</span>
+                <span className="text-[8px] scale-90">DASH</span>
+              </button>
+
+              {/* Zen Odaklanma Düğmesi (İç Sol) */}
+              <button
+                onTouchStart={(e) => handleTouchStart("e", e)}
+                onTouchEnd={(e) => handleTouchEnd("e", e)}
+                onTouchCancel={(e) => handleTouchEnd("e", e)}
+                className="absolute top-14 left-16 w-12 h-12 rounded-full bg-[#ffb300]/45 border-2 border-[#5d4037] text-[#3e2723] active:bg-[#ffb300]/80 flex flex-col items-center justify-center font-bold text-xs shadow-lg select-none"
+                style={{ touchAction: "none" }}
+              >
+                <span>⌛</span>
+                <span className="text-[7px] scale-90">ODAK</span>
+              </button>
+            </div>
+          </div>
+
           <button
             onClick={() => {
               setCharSelectActive(true);
             }}
-            className="absolute top-4 right-4 px-4 py-2 text-xs font-sans font-bold uppercase tracking-wider rounded-md bg-[#fcfaf2]/90 border-2 border-[#5d4037] text-[#5d4037] hover:bg-[#efebe9] transition-colors shadow-md"
+            className="absolute top-4 right-4 px-4 py-2 text-xs font-sans font-bold uppercase tracking-wider rounded-md bg-[#fcfaf2]/90 border-2 border-[#5d4037] text-[#5d4037] hover:bg-[#efebe9] transition-colors shadow-md pointer-events-auto"
           >
             Leave Woods
           </button>
@@ -2205,10 +2310,10 @@ export function StickFightGame() {
 
 function StartScreen({ onSelectMode }: { onSelectMode: (mode: "pvp" | "vs_ai" | "training") => void }) {
   return (
-    <div className="flex flex-col items-center gap-6 p-8 text-center max-w-4xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md">
+    <div className="flex flex-col items-center gap-6 p-8 text-center max-w-2xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md">
       <div>
         <h1
-          className="font-sans font-black text-6xl md:text-7xl tracking-tight"
+          className="font-sans font-black text-5xl md:text-6xl tracking-tight"
           style={{
             background: "linear-gradient(90deg, #2e7d32, #d84315)",
             WebkitBackgroundClip: "text",
@@ -2218,63 +2323,46 @@ function StartScreen({ onSelectMode }: { onSelectMode: (mode: "pvp" | "vs_ai" | 
         >
           WILDWOOD STRIKE
         </h1>
-        <p className="mt-3 text-[#5d4037] font-semibold uppercase tracking-[0.3em] text-xs">
-          Stickman Fight · Zen Focus · Local 2P & AI
+        <p className="mt-3 text-[#5d4037] font-semibold uppercase tracking-[0.25em] text-[10px] md:text-xs">
+          Tactical Action · Zen Focus · Mobile Controls & AI
         </p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 w-full justify-center my-2">
         <button
-          onClick={() => onSelectMode("pvp")}
-          className="px-6 py-3 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#2e7d32] border-b-4 border-[#1b5e20] text-white hover:scale-105 transition-transform"
-          style={{ boxShadow: "0 4px 14px rgba(46, 125, 50, 0.3)" }}
-        >
-          Local 1v1 PVP
-        </button>
-        <button
           onClick={() => onSelectMode("vs_ai")}
-          className="px-6 py-3 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#d84315] border-b-4 border-[#bf360c] text-white hover:scale-105 transition-transform"
+          className="px-8 py-3.5 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#d84315] border-b-4 border-[#bf360c] text-white hover:scale-105 transition-transform"
           style={{ boxShadow: "0 4px 14px rgba(216, 67, 21, 0.3)" }}
         >
           Fight Wild Bot (AI)
         </button>
         <button
           onClick={() => onSelectMode("training")}
-          className="px-6 py-3 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#78909c] border-b-4 border-[#546e7a] text-white hover:scale-105 transition-transform"
+          className="px-8 py-3.5 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#78909c] border-b-4 border-[#546e7a] text-white hover:scale-105 transition-transform"
           style={{ boxShadow: "0 4px 14px rgba(120, 144, 156, 0.3)" }}
         >
           Training Range
         </button>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4 w-full">
-        <ControlsCard
-          color="#2e7d32"
-          label="PLAYER 1 (FOREST)"
-          rows={[
-            ["Move / Walk", "A / D"],
-            ["Jump / Double", "W"],
-            ["Crouch / Block", "S (Hold on Ground)"],
-            ["Dash / Evade", "Shift / Q (Uses 30 Stamina)"],
-            ["Attack / Strike", "F"],
-            ["Zen Focus", "E (Hold)"],
-          ]}
-        />
-        <ControlsCard
-          color="#d84315"
-          label="PLAYER 2 (AUTUMN)"
-          rows={[
-            ["Move / Walk", "← / →"],
-            ["Jump / Double", "↑"],
-            ["Crouch / Block", "↓ (Hold on Ground)"],
-            ["Dash / Evade", "/ (Uses 30 Stamina)"],
-            ["Attack / Strike", "."],
-            ["Zen Focus", ", (Hold)"],
-          ]}
-        />
+      <div className="flex justify-center w-full">
+        <div className="w-full max-w-md">
+          <ControlsCard
+            color="#2e7d32"
+            label="CONTROLS (HERO)"
+            rows={[
+              ["Move / Walk", "A / D  (or Left/Right touch arrows)"],
+              ["Jump / Double", "W  (or ZIPLA touch button)"],
+              ["Crouch / Block", "S  (or BLOK touch button)"],
+              ["Dash / Evade", "Shift / Q  (or DASH touch button)"],
+              ["Attack / Strike", "F  (or VUR touch button)"],
+              ["Zen Focus", "E  (or ODAK touch button)"],
+            ]}
+          />
+        </div>
       </div>
 
-      <p className="text-xs text-[#8d6e63] max-w-lg mt-2">
+      <p className="text-xs text-[#8d6e63] max-w-md mt-2 leading-relaxed">
         Collect wooden scroll packages containing items. Blocking reduces damage by 80% but drains stamina. Stun stars appear on shield break.
       </p>
     </div>
