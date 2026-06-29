@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.kaan.wildwoodstrike',
-  appName: 'Wildwood Strike',
+  appId: 'com.kaan.rocketsurvivor',
+  appName: 'Rocket Survivor',
   webDir: 'dist-mobile'
 };
 

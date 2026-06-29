@@ -1,4 +1,4 @@
-package com.kaan.wildwoodstrike;
+package com.kaan.rocketsurvivor;
 
 import com.getcapacitor.BridgeActivity;
 

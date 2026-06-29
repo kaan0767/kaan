@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Wildwood Strike</string>
-    <string name="title_activity_main">Wildwood Strike</string>
-    <string name="package_name">com.kaan.wildwoodstrike</string>
-    <string name="custom_url_scheme">com.kaan.wildwoodstrike</string>
+    <string name="app_name">Rocket Survivor</string>
+    <string name="title_activity_main">Rocket Survivor</string>
+    <string name="package_name">com.kaan.rocketsurvivor</string>
+    <string name="custom_url_scheme">com.kaan.rocketsurvivor</string>
 </resources>
