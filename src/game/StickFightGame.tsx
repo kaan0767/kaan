@@ -2448,14 +2448,52 @@ export function StickFightGame() {
 
   return (
     <div
-      className="relative w-full h-full min-h-screen flex flex-col items-center justify-center p-4"
+      className="relative w-full h-full min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden select-none"
       style={{
-        backgroundImage: `linear-gradient(rgba(42, 33, 27, 0.45), rgba(42, 33, 27, 0.45)), url(${bgImage})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
+        background: "linear-gradient(to bottom, #1a237e 0%, #880e4f 55%, #ff5722 100%)",
       }}
     >
+      {/* Background Sun (matching the canvas sunset sun) */}
+      <div className="absolute top-[10%] right-[12%] w-32 h-32 md:w-44 md:h-44 rounded-full bg-[#ffcc80] opacity-75 blur-[1.5px] shadow-[0_0_60px_#ffab40] pointer-events-none z-0 animate-pulse" style={{ animationDuration: "8s" }} />
+
+      {/* Background Mountain/Hill Silhouette SVG (matching the game canvas platform environment) */}
+      <svg className="absolute bottom-0 left-0 w-full h-[25vh] min-h-[160px] pointer-events-none opacity-85 z-0" viewBox="0 0 1440 200" preserveAspectRatio="none">
+        {/* Layer 1: Distant dark violet hills */}
+        <path d="M0,200 L0,110 Q360,40 720,120 Q1080,200 1440,100 L1440,200 Z" fill="#2d1a3c" />
+        {/* Layer 2: Closer forest green hills */}
+        <path d="M0,200 L0,140 Q400,85 800,155 Q1200,95 1440,130 L1440,200 Z" fill="#1b3022" />
+        {/* Layer 3: Foreground dark silhouette floor */}
+        <path d="M0,200 L0,175 Q450,140 900,185 Q1250,165 1440,180 L1440,200 Z" fill="#0c180e" />
+      </svg>
+
+      {/* Global drifting leaf particles in the menu background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {Array.from({ length: 20 }).map((_, i) => {
+          const left = Math.random() * 110;
+          const delay = Math.random() * 12;
+          const duration = 10 + Math.random() * 9;
+          const size = 12 + Math.random() * 15;
+          const color = Math.random() < 0.55 ? "#2e7d32" : "#d84315";
+          return (
+            <span
+              key={i}
+              className="absolute top-[-25px] animate-leaf-drift opacity-40"
+              style={{
+                left: `${left}%`,
+                animationDelay: `${delay}s`,
+                animationDuration: `${duration}s`,
+                width: `${size}px`,
+                height: `${size}px`,
+                backgroundColor: color,
+                borderRadius: "0 100% 0 100%",
+                transform: "rotate(45deg)",
+                boxShadow: `0 0 6px ${color}`,
+              }}
+            />
+          );
+        })}
+      </div>
+
       {!started ? (
         <StartScreen
           difficulty={difficulty}
@@ -2615,34 +2653,7 @@ function StartScreen({
   onSelectMode: (mode: "pvp" | "vs_ai" | "training") => void;
 }) {
   return (
-    <div className="relative flex flex-col items-center gap-6 p-8 text-center max-w-2xl bg-[#fcfaf2]/90 border-4 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden">
-      {/* Dynamic drifting leaf particles in the menu background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-xl">
-        {Array.from({ length: 15 }).map((_, i) => {
-          const left = Math.random() * 110;
-          const delay = Math.random() * 10;
-          const duration = 8 + Math.random() * 8;
-          const size = 10 + Math.random() * 14;
-          const color = Math.random() < 0.55 ? "#2e7d32" : "#d84315";
-          return (
-            <span
-              key={i}
-              className="absolute top-[-20px] animate-leaf-drift opacity-30"
-              style={{
-                left: `${left}%`,
-                animationDelay: `${delay}s`,
-                animationDuration: `${duration}s`,
-                width: `${size}px`,
-                height: `${size}px`,
-                backgroundColor: color,
-                borderRadius: "0 100% 0 100%",
-                transform: "rotate(45deg)",
-                boxShadow: `0 0 6px ${color}`,
-              }}
-            />
-          );
-        })}
-      </div>
+    <div className="relative flex flex-col items-center gap-6 p-8 text-center max-w-2xl bg-[#fcfaf2]/95 border-4 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden">
 
       <style>{`
         @keyframes leafDrift {
