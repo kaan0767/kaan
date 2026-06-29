@@ -1,6 +1,246 @@
-// NEON STRIKE — a compact 2D stickman fighter
-// Canvas-rendered. Local 2-player. Bullet time. Weapon pickups.
+// WILDWOOD STRIKE — a tactical 2D medieval fighter
+// Canvas-rendered. Offline play vs AI. Bullet time. Weapon pickups.
 import { useEffect, useRef, useState } from "react";
+
+// Web Audio API Synthesized Sound Manager
+class SoundManager {
+  private ctx: AudioContext | null = null;
+  private masterVolume: GainNode | null = null;
+
+  init() {
+    if (this.ctx) return;
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    
+    try {
+      this.ctx = new AudioContextClass();
+      this.masterVolume = this.ctx.createGain();
+      this.masterVolume.gain.setValueAtTime(0.3, this.ctx.currentTime); // Master volume 30%
+      this.masterVolume.connect(this.ctx.destination);
+    } catch (err) {
+      console.warn("Failed to initialize AudioContext", err);
+    }
+  }
+
+  // Sine wave sweep going up for Jump
+  playJump() {
+    this.init();
+    if (!this.ctx || !this.masterVolume) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(140, now);
+    osc.frequency.exponentialRampToValueAtTime(400, now + 0.12);
+
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+    osc.connect(gain);
+    gain.connect(this.masterVolume);
+
+    osc.start(now);
+    osc.stop(now + 0.12);
+  }
+
+  // Bandpass noise sweep for Dash whoosh
+  playDash() {
+    this.init();
+    if (!this.ctx || !this.masterVolume) return;
+    const now = this.ctx.currentTime;
+    
+    const bufferSize = this.ctx.sampleRate * 0.12; // 120ms noise
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(900, now);
+    filter.frequency.exponentialRampToValueAtTime(300, now + 0.12);
+    filter.Q.setValueAtTime(4, now);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterVolume);
+
+    noise.start(now);
+    noise.stop(now + 0.12);
+  }
+
+  // Triangle wave + quick noise burst for weapon hit clash
+  playHit() {
+    this.init();
+    if (!this.ctx || !this.masterVolume) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(500, now);
+    osc.frequency.exponentialRampToValueAtTime(150, now + 0.15);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    const noiseLen = this.ctx.sampleRate * 0.03; // 30ms impact snap
+    const noiseBuffer = this.ctx.createBuffer(1, noiseLen, this.ctx.sampleRate);
+    const ndata = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) ndata[i] = Math.random() * 2 - 1;
+    
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = "highpass";
+    noiseFilter.frequency.setValueAtTime(1000, now);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.25, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.03);
+    
+    osc.connect(gain);
+    gain.connect(this.masterVolume);
+    
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.masterVolume);
+
+    osc.start(now);
+    osc.stop(now + 0.15);
+    noise.start(now);
+    noise.stop(now + 0.03);
+  }
+
+  // Lowpass filtered noise sweep for Gunshots
+  playShoot(isShotgun = false) {
+    this.init();
+    if (!this.ctx || !this.masterVolume) return;
+    const now = this.ctx.currentTime;
+
+    const duration = isShotgun ? 0.22 : 0.1;
+    const bufferSize = this.ctx.sampleRate * duration;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(isShotgun ? 350 : 1000, now);
+    filter.frequency.exponentialRampToValueAtTime(80, now + duration);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(isShotgun ? 0.55 : 0.28, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterVolume);
+
+    noise.start(now);
+    noise.stop(now + duration);
+  }
+
+  // Low-frequency heavy noise burst for rocket explosions
+  playExplosion() {
+    this.init();
+    if (!this.ctx || !this.masterVolume) return;
+    const now = this.ctx.currentTime;
+
+    const duration = 0.4;
+    const bufferSize = this.ctx.sampleRate * duration;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(220, now);
+    filter.frequency.exponentialRampToValueAtTime(30, now + duration);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.6, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterVolume);
+
+    noise.start(now);
+    noise.stop(now + duration);
+  }
+
+  // High-frequency chime block reflection
+  playBlock() {
+    this.init();
+    if (!this.ctx || !this.masterVolume) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(750, now);
+    osc.frequency.exponentialRampToValueAtTime(150, now + 0.08);
+
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+
+    osc.connect(gain);
+    gain.connect(this.masterVolume);
+
+    osc.start(now);
+    osc.stop(now + 0.08);
+  }
+
+  // Harmonic chord victory chime (C major triad chord)
+  playVictory() {
+    this.init();
+    if (!this.ctx || !this.masterVolume) return;
+    const now = this.ctx.currentTime;
+
+    const notes = [261.63, 329.63, 392.00, 523.25]; // C4, E4, G4, C5
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+
+      gain.gain.setValueAtTime(0.15, now + idx * 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.1 + 0.3);
+
+      osc.connect(gain);
+      gain.connect(this.masterVolume!);
+
+      osc.start(now + idx * 0.1);
+      osc.stop(now + idx * 0.1 + 0.3);
+    });
+  }
+}
+
+const sound = new SoundManager();
 
 type Vec = { x: number; y: number };
 type WeaponKind = "fists" | "katana" | "pistol" | "shotgun" | "rocket" | "spear" | "mace";
@@ -331,6 +571,8 @@ export function StickFightGame() {
         if (Math.abs(dx) < 60 && Math.abs(dy) < 50 && Math.sign(dx) === p.facing) {
           damage(other, 8, p.facing * 350, -200, p);
         }
+        // Fists swing sound
+        sound.playBlock();
         break;
       }
       case "katana": {
@@ -368,6 +610,8 @@ export function StickFightGame() {
           }
         }
         spawnParticles(muzzleX, muzzleY, 8, p.comboStep === 2 ? "#ff9800" : (p.comboStep === 1 ? "#4caf50" : p.color), 250, { type: "leaf" });
+        // Katana swing whoosh sound
+        sound.playDash();
         break;
       }
       case "pistol": {
@@ -382,6 +626,8 @@ export function StickFightGame() {
         });
         s.shake = Math.max(s.shake, 3);
         spawnParticles(muzzleX, muzzleY, 4, "#8d6e63", 250, { type: "splinter", gravity: false });
+        // Pistol gunshot sound
+        sound.playShoot(false);
         break;
       }
       case "shotgun": {
@@ -398,6 +644,8 @@ export function StickFightGame() {
         }
         s.shake = Math.max(s.shake, 10);
         spawnParticles(muzzleX, muzzleY, 12, "#8d6e63", 350, { type: "splinter", gravity: false });
+        // Shotgun blast sound
+        sound.playShoot(true);
         break;
       }
       case "rocket": {
@@ -413,6 +661,8 @@ export function StickFightGame() {
         });
         s.shake = Math.max(s.shake, 14);
         spawnParticles(muzzleX, muzzleY, 8, "#d84315", 300, { type: "splinter", gravity: false });
+        // Rocket launch sweep sound
+        sound.playShoot(true);
         break;
       }
       case "spear": {
@@ -426,6 +676,8 @@ export function StickFightGame() {
           spawnParticles(other.pos.x, other.pos.y - 30, 6, "#90a4ae", 350, { type: "splinter" });
         }
         spawnParticles(muzzleX, muzzleY, 3, "#90a4ae", 150, { type: "dust" });
+        // Spear swing sound
+        sound.playBlock();
         break;
       }
       case "mace": {
@@ -441,6 +693,8 @@ export function StickFightGame() {
           spawnParticles(other.pos.x, other.pos.y - 30, 10, "#a1887f", 300, { type: "dust" });
         }
         spawnParticles(muzzleX, muzzleY, 8, "#78909c", 200, { type: "dust" });
+        // Heavy swing whoosh sound
+        sound.playDash();
         break;
       }
     }
@@ -461,6 +715,8 @@ export function StickFightGame() {
       p.powerupTimer = 0;
       s.shake = Math.max(s.shake, 6);
       spawnParticles(p.pos.x, p.pos.y - 30, 12, "#78909c", 250, { type: "spark" });
+      // Shield block sound
+      sound.playBlock();
       return;
     }
     
@@ -479,6 +735,9 @@ export function StickFightGame() {
       s.shake = Math.max(s.shake, 3);
       spawnParticles(p.pos.x, p.pos.y - 30, 8, "#b0bec5", 200, { type: "spark" });
       
+      // Melee block sound
+      sound.playBlock();
+      
       if (p.stamina <= 0) {
         p.blocking = false;
         p.stunTimer = 0.8;
@@ -495,6 +754,9 @@ export function StickFightGame() {
     s.shake = Math.max(s.shake, Math.min(18, dmg * 0.6));
     spawnParticles(p.pos.x, p.pos.y - 30, Math.min(15, dmg / 2), "#8d6e63", 300, { type: "splinter" });
     spawnParticles(p.pos.x, p.pos.y - 30, Math.min(15, dmg / 2), p.color, 300, { type: "leaf" });
+    
+    // Strike hit sound
+    sound.playHit();
     
     if (p.hp <= 0 && !s.roundOver) {
       s.roundOver = true;
@@ -516,6 +778,9 @@ export function StickFightGame() {
       // big explosion: wood splinters and leaves
       spawnParticles(p.pos.x, p.pos.y - 30, 40, "#8d6e63", 500, { type: "splinter" });
       spawnParticles(p.pos.x, p.pos.y - 30, 40, p.color, 400, { type: "leaf" });
+      
+      // Play victory chime
+      sound.playVictory();
     }
   }
   
@@ -784,6 +1049,7 @@ export function StickFightGame() {
     }
 
     const explodeRocket = (bx: number, by: number, ownerId: number) => {
+      sound.playExplosion();
       s.shake = Math.max(s.shake, 24);
       spawnParticles(bx, by, 25, "#ff5722", 450, { type: "leaf" });
       spawnParticles(bx, by, 20, "#ff9800", 350, { type: "dust" });
@@ -950,6 +1216,7 @@ export function StickFightGame() {
         p.vel.y = -jumpV;
         p.jumps--;
         spawnParticles(p.pos.x, p.pos.y, 8, "#a1887f", 200, { type: "dust" });
+        sound.playJump();
       }
       
       // dash
@@ -960,6 +1227,7 @@ export function StickFightGame() {
         p.stamina = Math.max(0, p.stamina - 30);
         p.invuln = Math.max(p.invuln, 0.15);
         spawnParticles(p.pos.x, p.pos.y - 20, 14, p.id === 0 ? "#4caf50" : "#ff9800", 350, { type: "leaf" });
+        sound.playDash();
       }
       
       // slide
@@ -2310,12 +2578,64 @@ export function StickFightGame() {
 
 function StartScreen({ onSelectMode }: { onSelectMode: (mode: "pvp" | "vs_ai" | "training") => void }) {
   return (
-    <div className="flex flex-col items-center gap-6 p-8 text-center max-w-2xl bg-[#fcfaf2]/85 border-2 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md">
-      <div>
+    <div className="relative flex flex-col items-center gap-6 p-8 text-center max-w-2xl bg-[#fcfaf2]/90 border-4 border-[#5d4037] rounded-2xl shadow-2xl backdrop-blur-md overflow-hidden">
+      {/* Dynamic drifting leaf particles in the menu background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-xl">
+        {Array.from({ length: 15 }).map((_, i) => {
+          const left = Math.random() * 110;
+          const delay = Math.random() * 10;
+          const duration = 8 + Math.random() * 8;
+          const size = 10 + Math.random() * 14;
+          const color = Math.random() < 0.55 ? "#2e7d32" : "#d84315";
+          return (
+            <span
+              key={i}
+              className="absolute top-[-20px] animate-leaf-drift opacity-30"
+              style={{
+                left: `${left}%`,
+                animationDelay: `${delay}s`,
+                animationDuration: `${duration}s`,
+                width: `${size}px`,
+                height: `${size}px`,
+                backgroundColor: color,
+                borderRadius: "0 100% 0 100%",
+                transform: "rotate(45deg)",
+                boxShadow: `0 0 6px ${color}`,
+              }}
+            />
+          );
+        })}
+      </div>
+
+      <style>{`
+        @keyframes leafDrift {
+          0% {
+            transform: translateY(-20px) translateX(0) rotate(45deg);
+            opacity: 0;
+          }
+          10% {
+            opacity: 0.35;
+          }
+          90% {
+            opacity: 0.35;
+          }
+          100% {
+            transform: translateY(500px) translateX(-140px) rotate(360deg);
+            opacity: 0;
+          }
+        }
+        .animate-leaf-drift {
+          animation-name: leafDrift;
+          animation-iteration-count: infinite;
+          animation-timing-function: linear;
+        }
+      `}</style>
+
+      <div className="relative z-10">
         <h1
-          className="font-sans font-black text-5xl md:text-6xl tracking-tight"
+          className="font-sans font-black text-5xl md:text-6xl tracking-tight drop-shadow-md"
           style={{
-            background: "linear-gradient(90deg, #2e7d32, #d84315)",
+            background: "linear-gradient(135deg, #2e7d32, #d84315)",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
             textShadow: "2px 2px 0px rgba(93, 64, 55, 0.15)",
@@ -2323,46 +2643,59 @@ function StartScreen({ onSelectMode }: { onSelectMode: (mode: "pvp" | "vs_ai" | 
         >
           WILDWOOD STRIKE
         </h1>
-        <p className="mt-3 text-[#5d4037] font-semibold uppercase tracking-[0.25em] text-[10px] md:text-xs">
+        <p className="mt-3 text-[#5d4037] font-bold uppercase tracking-[0.25em] text-[10px] md:text-xs">
           Tactical Action · Zen Focus · Mobile Controls & AI
         </p>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 w-full justify-center my-2">
+      <div className="relative z-10 flex flex-col sm:flex-row gap-4 w-full justify-center my-2">
         <button
-          onClick={() => onSelectMode("vs_ai")}
-          className="px-8 py-3.5 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#d84315] border-b-4 border-[#bf360c] text-white hover:scale-105 transition-transform"
-          style={{ boxShadow: "0 4px 14px rgba(216, 67, 21, 0.3)" }}
+          onClick={() => { sound.init(); onSelectMode("vs_ai"); }}
+          className="px-8 py-3.5 font-sans font-extrabold text-base uppercase tracking-wider rounded-lg bg-gradient-to-r from-[#d84315] to-[#ff7043] border-b-4 border-[#bf360c] text-white hover:scale-105 active:scale-95 transition-all shadow-[#d84315]/30 hover:shadow-[#d84315]/50 shadow-md"
         >
           Fight Wild Bot (AI)
         </button>
         <button
-          onClick={() => onSelectMode("training")}
-          className="px-8 py-3.5 font-sans font-bold text-base uppercase tracking-wider rounded-md bg-[#78909c] border-b-4 border-[#546e7a] text-white hover:scale-105 transition-transform"
-          style={{ boxShadow: "0 4px 14px rgba(120, 144, 156, 0.3)" }}
+          onClick={() => { sound.init(); onSelectMode("training"); }}
+          className="px-8 py-3.5 font-sans font-extrabold text-base uppercase tracking-wider rounded-lg bg-gradient-to-r from-[#78909c] to-[#b0bec5] border-b-4 border-[#546e7a] text-[#263238] hover:scale-105 active:scale-95 transition-all shadow-[#78909c]/30 hover:shadow-[#78909c]/50 shadow-md"
         >
           Training Range
         </button>
       </div>
 
-      <div className="flex justify-center w-full">
-        <div className="w-full max-w-md">
-          <ControlsCard
-            color="#2e7d32"
-            label="CONTROLS (HERO)"
-            rows={[
-              ["Move / Walk", "A / D  (or Left/Right touch arrows)"],
-              ["Jump / Double", "W  (or ZIPLA touch button)"],
-              ["Crouch / Block", "S  (or BLOK touch button)"],
-              ["Dash / Evade", "Shift / Q  (or DASH touch button)"],
-              ["Attack / Strike", "F  (or VUR touch button)"],
-              ["Zen Focus", "E  (or ODAK touch button)"],
-            ]}
-          />
+      <div className="relative z-10 flex justify-center w-full">
+        <div className="w-full max-w-md bg-[#efebe9]/80 border border-[#d7ccc8] rounded-xl p-4 shadow-inner">
+          <h3 className="font-sans font-bold text-xs uppercase text-[#5d4037] tracking-wider mb-3 pb-1 border-b border-[#d7ccc8]">
+            Controls Reference
+          </h3>
+          <div className="flex flex-col gap-2">
+            {[
+              { act: "Move / Walk", keys: ["A", "D"], mob: "Left/Right arrows" },
+              { act: "Jump / Double", keys: ["W"], mob: "ZIPLA button" },
+              { act: "Crouch / Block", keys: ["S"], mob: "BLOK button" },
+              { act: "Dash / Evade", keys: ["Shift", "Q"], mob: "DASH button" },
+              { act: "Attack / Strike", keys: ["F"], mob: "VUR button" },
+              { act: "Zen Focus", keys: ["E"], mob: "ODAK button" },
+            ].map((row, idx) => (
+              <div key={idx} className="flex justify-between items-center text-xs">
+                <span className="text-[#8d6e63] font-semibold">{row.act}</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex gap-1">
+                    {row.keys.map((k, ki) => (
+                      <kbd key={ki} className="px-1.5 py-0.5 rounded bg-[#fcfaf2] border border-[#5d4037]/30 font-mono text-[9px] font-bold shadow-sm text-[#3e2723]">
+                        {k}
+                      </kbd>
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-[#5d4037]/50 font-sans">or {row.mob}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <p className="text-xs text-[#8d6e63] max-w-md mt-2 leading-relaxed">
+      <p className="relative z-10 text-[10px] md:text-xs text-[#8d6e63] max-w-md mt-2 leading-relaxed">
         Collect wooden scroll packages containing items. Blocking reduces damage by 80% but drains stamina. Stun stars appear on shield break.
       </p>
     </div>
@@ -2483,7 +2816,7 @@ function CharacterSelectScreen({
           Back
         </button>
         <button
-          onClick={onFight}
+          onClick={() => { sound.init(); onFight(); }}
           className="px-8 py-2.5 font-sans font-bold uppercase tracking-wider text-white rounded bg-[#2e7d32] border-b-4 border-[#1b5e20] hover:scale-105 active:scale-95 transition-transform"
           style={{ boxShadow: "0 4px 12px rgba(46, 125, 50, 0.3)" }}
         >
