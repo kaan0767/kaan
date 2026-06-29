@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { StickFightGame } from "@/game/StickFightGame";
+import { SpaceDodgeGame } from "@/game/SpaceDodgeGame";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "NEON STRIKE — Stickman Fight" },
-      { name: "description", content: "A neon 2D physics stickman fighter with bullet time, weapons, and chaotic local multiplayer." },
-      { property: "og:title", content: "NEON STRIKE — Stickman Fight" },
-      { property: "og:description", content: "Neon stickman combat. Bullet time. Local 2-player chaos." },
+      { title: "KOZMİK KAÇIŞ — Space Rocket Dodge" },
+      { name: "description", content: "Mobil cihazlar için optimize edilmiş, akıcı, tematik ve eğlenceli sonsuz uzay kaçış (Endless Dodging) oyunu." },
+      { property: "og:title", content: "KOZMİK KAÇIŞ — Space Rocket Dodge" },
+      { property: "og:description", content: "Dünya'dan derin uzaya uzanan sonsuz roket kaçış serüveni." },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -19,5 +19,6 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  return <StickFightGame />;
+  return <SpaceDodgeGame />;
 }
+
