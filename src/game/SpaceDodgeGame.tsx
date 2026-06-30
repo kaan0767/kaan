@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Volume2, VolumeX, Shield, Clock, Star, Heart, Play, RotateCcw, Home, Pause } from "lucide-react";
+import { Volume2, VolumeX, Shield, Clock, Star, Heart, Play, RotateCcw, Home, Pause, Tv } from "lucide-react";
 
 // --- PROCEDURAL AUDIO SYNTHESIZER ---
 class SoundManager {
@@ -652,6 +652,20 @@ export const SpaceDodgeGame: React.FC = () => {
   const [shieldTimeLeft, setShieldTimeLeft] = useState<number>(0);
   const [slowTimeLeft, setSlowTimeLeft] = useState<number>(0);
   const [doublePointsTimeLeft, setDoublePointsTimeLeft] = useState<number>(0);
+  const [adContinueUsed, setAdContinueUsed] = useState<boolean>(false);
+
+  // --- MENU ANIMATED BACKGROUND STATE ---
+  const menuAnimRef = useRef<{
+    stars: { x: number; y: number; size: number; speed: number; twinkle: number; twinkleSpeed: number }[];
+    rocket: { x: number; y: number; angle: number; time: number };
+    shootingStars: { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; active: boolean }[];
+    initialized: boolean;
+  }>({
+    stars: [],
+    rocket: { x: 200, y: 300, angle: 0, time: 0 },
+    shootingStars: [],
+    initialized: false
+  });
 
   // Gameplay configuration refs (to avoid closures in animation frame loop)
   const stateRef = useRef<{
@@ -1089,6 +1103,7 @@ export const SpaceDodgeGame: React.FC = () => {
     state.selectedRocket = selectedRocket;
     state.boostersDetached = false;
     state.detachedParts = [];
+    setAdContinueUsed(false);
     state.screenFlash = 0;
     state.bgPlanetOpacity = 0;
     state.bgPlanetTargetOpacity = 1;
@@ -1110,6 +1125,41 @@ export const SpaceDodgeGame: React.FC = () => {
     state.gameState = "PLAYING";
     setGameState("PLAYING");
     triggerZoneTransition(0);
+  };
+
+  // --- AD CONTINUE: Watch ad to revive and keep playing ---
+  const handleAdContinue = () => {
+    // Mark ad continue as used for this game session
+    setAdContinueUsed(true);
+
+    // --- AdMob Rewarded Ad Placeholder ---
+    // When you integrate AdMob SDK, replace this block with:
+    // import { AdMob, RewardAdOptions } from '@capacitor-community/admob';
+    // const options: RewardAdOptions = { adId: 'ca-app-pub-XXXXX/YYYYY' };
+    // await AdMob.showRewardVideoAd(options);
+    // Then call the revival logic in the reward callback.
+    //
+    // For now, we simulate a successful ad watch:
+    const showRewardedAd = (): Promise<boolean> => {
+      return new Promise((resolve) => {
+        // Simulate ad display delay
+        setTimeout(() => resolve(true), 500);
+      });
+    };
+
+    showRewardedAd().then((rewarded) => {
+      if (rewarded) {
+        const state = stateRef.current;
+        // Revive the player: give 1 life, keep score, keep zone
+        state.lives = 1;
+        state.gameState = "PLAYING";
+        state.shieldDuration = 3000; // 3 second shield after revive
+        setLives(1);
+        setShieldTimeLeft(3);
+        setGameState("PLAYING");
+        soundManagerRef.current.playPowerUp();
+      }
+    });
   };
 
   const handlePause = () => {
@@ -1231,6 +1281,354 @@ export const SpaceDodgeGame: React.FC = () => {
 
       // Clear screen
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // ============ ANIMATED MENU BACKGROUND ============
+      if (state.gameState === "MENU") {
+        const menu = menuAnimRef.current;
+        
+        // Initialize menu stars on first frame
+        if (!menu.initialized) {
+          menu.stars = [];
+          for (let i = 0; i < 200; i++) {
+            menu.stars.push({
+              x: Math.random() * canvas.width,
+              y: Math.random() * canvas.height,
+              size: Math.random() * 2.5 + 0.5,
+              speed: Math.random() * 0.8 + 0.2,
+              twinkle: Math.random() * Math.PI * 2,
+              twinkleSpeed: Math.random() * 2 + 1
+            });
+          }
+          menu.rocket = { x: canvas.width * 0.15, y: canvas.height * 0.55, angle: -0.15, time: 0 };
+          menu.shootingStars = [];
+          for (let i = 0; i < 5; i++) {
+            menu.shootingStars.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, active: false });
+          }
+          menu.initialized = true;
+        }
+
+        // Deep space gradient background
+        const menuGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        menuGrad.addColorStop(0, "#020618");
+        menuGrad.addColorStop(0.4, "#0a0e2a");
+        menuGrad.addColorStop(0.7, "#0f172a");
+        menuGrad.addColorStop(1, "#020618");
+        ctx.fillStyle = menuGrad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Distant nebula glow blobs
+        ctx.save();
+        ctx.globalAlpha = 0.08;
+        const neb1 = ctx.createRadialGradient(canvas.width * 0.75, canvas.height * 0.25, 20, canvas.width * 0.75, canvas.height * 0.25, canvas.width * 0.35);
+        neb1.addColorStop(0, "#7c3aed");
+        neb1.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = neb1;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const neb2 = ctx.createRadialGradient(canvas.width * 0.2, canvas.height * 0.7, 10, canvas.width * 0.2, canvas.height * 0.7, canvas.width * 0.25);
+        neb2.addColorStop(0, "#06b6d4");
+        neb2.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = neb2;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+
+        // Draw twinkling stars
+        menu.stars.forEach(star => {
+          star.y += star.speed;
+          star.twinkle += star.twinkleSpeed * dt;
+          if (star.y > canvas.height) {
+            star.y = -5;
+            star.x = Math.random() * canvas.width;
+          }
+          const alpha = 0.4 + Math.sin(star.twinkle) * 0.35;
+          ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.05, alpha)})`;
+          ctx.beginPath();
+          ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Larger stars get a subtle cross glint
+          if (star.size > 1.8 && alpha > 0.6) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.3})`;
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(star.x - star.size * 2.5, star.y);
+            ctx.lineTo(star.x + star.size * 2.5, star.y);
+            ctx.moveTo(star.x, star.y - star.size * 2.5);
+            ctx.lineTo(star.x, star.y + star.size * 2.5);
+            ctx.stroke();
+          }
+        });
+
+        // --- MILKY WAY GALAXY (top-left) ---
+        const gx = canvas.width * 0.18;
+        const gy = canvas.height * 0.22;
+        const gSize = Math.min(canvas.width, canvas.height) * 0.22;
+
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(-0.4); // tilt the galaxy
+
+        // Outer diffuse halo
+        const haloGrad = ctx.createRadialGradient(0, 0, gSize * 0.1, 0, 0, gSize * 1.1);
+        haloGrad.addColorStop(0, "rgba(200, 180, 255, 0.08)");
+        haloGrad.addColorStop(0.5, "rgba(100, 120, 200, 0.03)");
+        haloGrad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = haloGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, gSize * 1.1, gSize * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Main galactic disc (flattened ellipse with milky glow)
+        const discGrad = ctx.createRadialGradient(0, 0, gSize * 0.03, 0, 0, gSize * 0.85);
+        discGrad.addColorStop(0, "rgba(255, 245, 220, 0.25)");
+        discGrad.addColorStop(0.15, "rgba(220, 200, 180, 0.18)");
+        discGrad.addColorStop(0.4, "rgba(160, 140, 200, 0.1)");
+        discGrad.addColorStop(0.7, "rgba(80, 100, 180, 0.05)");
+        discGrad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = discGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, gSize * 0.85, gSize * 0.22, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Spiral arm dust lanes (drawn as rotated, offset ellipses)
+        for (let arm = 0; arm < 4; arm++) {
+          ctx.save();
+          ctx.rotate((arm * Math.PI) / 2 + 0.3);
+          const armGrad = ctx.createRadialGradient(gSize * 0.15, 0, gSize * 0.02, gSize * 0.15, 0, gSize * 0.55);
+          armGrad.addColorStop(0, "rgba(200, 180, 240, 0.12)");
+          armGrad.addColorStop(0.5, "rgba(140, 160, 220, 0.06)");
+          armGrad.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = armGrad;
+          ctx.beginPath();
+          ctx.ellipse(gSize * 0.2, gSize * 0.04, gSize * 0.45, gSize * 0.08, 0.25, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // Bright galactic core (bulge)
+        const coreGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, gSize * 0.12);
+        coreGrad.addColorStop(0, "rgba(255, 248, 220, 0.45)");
+        coreGrad.addColorStop(0.4, "rgba(255, 230, 180, 0.25)");
+        coreGrad.addColorStop(0.7, "rgba(200, 180, 160, 0.1)");
+        coreGrad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = coreGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, gSize * 0.14, gSize * 0.08, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Tiny dense stars along the galactic plane
+        ctx.globalAlpha = 0.6;
+        for (let i = 0; i < 80; i++) {
+          const sx = (Math.random() - 0.5) * gSize * 1.5;
+          const sy = (Math.random() - 0.5) * gSize * 0.3;
+          const dist = Math.sqrt(sx * sx + sy * sy * 9) / gSize;
+          if (dist > 0.85) continue; // clip to ellipse shape
+          const brightness = Math.max(0, 1 - dist) * 0.7;
+          ctx.fillStyle = `rgba(255, 255, ${200 + Math.random() * 55}, ${brightness})`;
+          ctx.beginPath();
+          ctx.arc(sx, sy, Math.random() * 1.2 + 0.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+
+        ctx.restore();
+
+        // Draw a small Earth in the corner
+        const earthX = canvas.width * 0.85;
+        const earthY = canvas.height * 0.72;
+        const earthR = Math.min(canvas.width, canvas.height) * 0.09;
+
+        // Earth glow
+        const earthGlow = ctx.createRadialGradient(earthX, earthY, earthR * 0.9, earthX, earthY, earthR * 1.2);
+        earthGlow.addColorStop(0, "rgba(56, 189, 248, 0.15)");
+        earthGlow.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = earthGlow;
+        ctx.beginPath();
+        ctx.arc(earthX, earthY, earthR * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Earth sphere
+        const earthGrad = ctx.createRadialGradient(earthX - earthR * 0.3, earthY - earthR * 0.3, earthR * 0.1, earthX, earthY, earthR);
+        earthGrad.addColorStop(0, "#64b5f6");
+        earthGrad.addColorStop(0.5, "#1e88e5");
+        earthGrad.addColorStop(1, "#0d47a1");
+        ctx.fillStyle = earthGrad;
+        ctx.beginPath();
+        ctx.arc(earthX, earthY, earthR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Continents
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(earthX, earthY, earthR, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.fillStyle = "rgba(76, 175, 80, 0.45)";
+        ctx.beginPath();
+        ctx.ellipse(earthX - earthR * 0.2, earthY - earthR * 0.1, earthR * 0.35, earthR * 0.25, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(earthX + earthR * 0.3, earthY + earthR * 0.25, earthR * 0.2, earthR * 0.15, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+        // Shadow
+        const earthShadow = ctx.createLinearGradient(earthX - earthR * 0.5, earthY - earthR * 0.5, earthX + earthR * 0.5, earthY + earthR * 0.5);
+        earthShadow.addColorStop(0, "rgba(0,0,0,0)");
+        earthShadow.addColorStop(0.6, "rgba(0,0,0,0.4)");
+        earthShadow.addColorStop(1, "rgba(0,0,0,0.85)");
+        ctx.fillStyle = earthShadow;
+        ctx.beginPath();
+        ctx.arc(earthX, earthY, earthR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Shooting stars (spawn randomly)
+        menu.shootingStars.forEach(ss => {
+          if (!ss.active && Math.random() < 0.003) {
+            ss.active = true;
+            ss.x = Math.random() * canvas.width * 0.6;
+            ss.y = Math.random() * canvas.height * 0.4;
+            ss.vx = 6 + Math.random() * 4;
+            ss.vy = 3 + Math.random() * 2;
+            ss.maxLife = 40 + Math.random() * 30;
+            ss.life = ss.maxLife;
+          }
+          if (ss.active) {
+            ss.x += ss.vx;
+            ss.y += ss.vy;
+            ss.life--;
+            if (ss.life <= 0) { ss.active = false; return; }
+            const ssAlpha = ss.life / ss.maxLife;
+            // Shooting star trail
+            const trailGrad = ctx.createLinearGradient(ss.x, ss.y, ss.x - ss.vx * 6, ss.y - ss.vy * 6);
+            trailGrad.addColorStop(0, `rgba(255, 255, 255, ${ssAlpha})`);
+            trailGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
+            ctx.strokeStyle = trailGrad;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(ss.x, ss.y);
+            ctx.lineTo(ss.x - ss.vx * 6, ss.y - ss.vy * 6);
+            ctx.stroke();
+            // Head glow
+            ctx.fillStyle = `rgba(255, 255, 255, ${ssAlpha})`;
+            ctx.beginPath();
+            ctx.arc(ss.x, ss.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        });
+
+        // --- ANIMATED ROCKET flying across the menu ---
+        const mr = menu.rocket;
+        mr.time += dt;
+        // Gentle sine wave flying path from left to right
+        const rocketSpeed = 45;
+        mr.x += rocketSpeed * dt;
+        mr.y = canvas.height * 0.5 + Math.sin(mr.time * 1.2) * 60;
+        mr.angle = Math.cos(mr.time * 1.2) * 0.08; // slight tilt as it oscillates
+
+        // Wrap around when rocket goes off screen
+        if (mr.x > canvas.width + 80) {
+          mr.x = -80;
+          mr.y = canvas.height * 0.35 + Math.random() * canvas.height * 0.3;
+        }
+
+        ctx.save();
+        ctx.translate(mr.x, mr.y);
+        ctx.rotate(mr.angle - Math.PI / 2 + Math.PI / 2); // slightly tilted right
+
+        const mrW = 28;
+        const mrH = 48;
+
+        // Engine flame
+        const flameLen = 12 + Math.sin(timestamp * 0.02) * 6;
+        const flameGrad = ctx.createLinearGradient(0, mrH * 0.4, 0, mrH * 0.4 + flameLen);
+        flameGrad.addColorStop(0, "rgba(255, 200, 50, 0.9)");
+        flameGrad.addColorStop(0.5, "rgba(255, 100, 20, 0.6)");
+        flameGrad.addColorStop(1, "rgba(255, 50, 0, 0)");
+        ctx.fillStyle = flameGrad;
+        ctx.beginPath();
+        ctx.moveTo(-mrW * 0.2, mrH * 0.4);
+        ctx.quadraticCurveTo(0, mrH * 0.4 + flameLen, mrW * 0.2, mrH * 0.4);
+        ctx.fill();
+
+        // Rocket body
+        const bodyGrad = ctx.createLinearGradient(-mrW / 2, -mrH / 2, mrW / 2, -mrH / 2);
+        bodyGrad.addColorStop(0, "#90a4ae");
+        bodyGrad.addColorStop(0.5, "#eceff1");
+        bodyGrad.addColorStop(1, "#78909c");
+        ctx.fillStyle = bodyGrad;
+        ctx.beginPath();
+        ctx.moveTo(0, -mrH / 2);
+        ctx.quadraticCurveTo(mrW / 2, -mrH / 4, mrW / 2, mrH * 0.35);
+        ctx.lineTo(-mrW / 2, mrH * 0.35);
+        ctx.quadraticCurveTo(-mrW / 2, -mrH / 4, 0, -mrH / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Nose cone accent
+        ctx.fillStyle = "#ff1744";
+        ctx.beginPath();
+        ctx.moveTo(0, -mrH / 2);
+        ctx.quadraticCurveTo(mrW * 0.25, -mrH / 3.5, mrW * 0.15, -mrH / 6);
+        ctx.lineTo(-mrW * 0.15, -mrH / 6);
+        ctx.quadraticCurveTo(-mrW * 0.25, -mrH / 3.5, 0, -mrH / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Cockpit window
+        ctx.fillStyle = "rgba(56, 189, 248, 0.7)";
+        ctx.beginPath();
+        ctx.arc(0, -mrH * 0.08, mrW * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.beginPath();
+        ctx.ellipse(-mrW * 0.05, -mrH * 0.12, mrW * 0.08, mrW * 0.04, -0.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Fins
+        ctx.fillStyle = "#ff1744";
+        ctx.beginPath();
+        ctx.moveTo(-mrW / 2, mrH * 0.25);
+        ctx.lineTo(-mrW / 2 - 6, mrH * 0.42);
+        ctx.lineTo(-mrW / 2, mrH * 0.35);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(mrW / 2, mrH * 0.25);
+        ctx.lineTo(mrW / 2 + 6, mrH * 0.42);
+        ctx.lineTo(mrW / 2, mrH * 0.35);
+        ctx.closePath();
+        ctx.fill();
+
+        // Nav lights blinking
+        const navOn = Math.floor(timestamp / 400) % 2 === 0;
+        if (navOn) {
+          ctx.fillStyle = "rgba(255, 23, 68, 0.8)";
+          ctx.beginPath();
+          ctx.arc(-mrW / 2 - 2, mrH * 0.3, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(0, 230, 118, 0.8)";
+          ctx.beginPath();
+          ctx.arc(mrW / 2 + 2, mrH * 0.3, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.restore();
+
+        // Engine particle trail behind the rocket
+        if (Math.random() < 0.6) {
+          const trailX = mr.x + (Math.random() - 0.5) * 6;
+          const trailY = mr.y + 28;
+          ctx.fillStyle = `rgba(255, ${150 + Math.random() * 100}, 50, ${0.3 + Math.random() * 0.3})`;
+          ctx.beginPath();
+          ctx.arc(trailX, trailY + Math.random() * 10, Math.random() * 2.5 + 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Skip the rest of the game rendering in MENU state
+        // Draw frame request for animation loop
+        animationId = requestAnimationFrame(gameLoop);
+        return;
+      }
+      // ============ END MENU BACKGROUND ============
 
       // Current active zone style
       const activeZoneIdx = getCurrentZoneIndex(state.gameTime);
@@ -3824,8 +4222,8 @@ export const SpaceDodgeGame: React.FC = () => {
 
       {/* --- MENU OVERLAY --- */}
       {gameState === "MENU" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-between p-6 bg-slate-950/75 backdrop-blur-sm z-10 overflow-y-auto">
-          <div className="text-center mt-12 mb-4">
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-slate-950/40 z-10 overflow-y-auto">
+          <div className="text-center mb-5">
             <h1 className="text-4xl font-extrabold tracking-widest text-cyan-400 font-display drop-shadow-[0_0_12px_rgba(34,211,238,0.5)]">
               KOZMİK KAÇIŞ
             </h1>
@@ -3834,7 +4232,7 @@ export const SpaceDodgeGame: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex flex-col items-center gap-3.5 max-w-xs w-full mb-6">
+          <div className="flex flex-col items-center gap-3.5 max-w-xs w-full mb-4">
             <div className="bg-slate-900/60 border border-slate-800 rounded-lg py-2 px-4 w-full text-center">
               <span className="text-[10px] text-slate-500 block uppercase tracking-wider">EN YÜKSEK SKOR</span>
               <span className="text-xl font-bold font-display text-yellow-400">{highScore}</span>
@@ -4136,7 +4534,7 @@ export const SpaceDodgeGame: React.FC = () => {
       {/* --- GAME OVER OVERLAY --- */}
       {gameState === "GAMEOVER" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-slate-950/92 backdrop-blur-md z-15">
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <h2 className="text-4xl font-extrabold font-display text-red-500 tracking-wider drop-shadow-[0_0_12px_rgba(239,68,68,0.4)]">
               GÖREV BAŞARISIZ
             </h2>
@@ -4145,7 +4543,7 @@ export const SpaceDodgeGame: React.FC = () => {
             </p>
           </div>
 
-          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-6 w-full max-w-sm flex flex-col gap-4 mb-8 text-center shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-6 w-full max-w-sm flex flex-col gap-4 mb-6 text-center shadow-[0_0_20px_rgba(0,0,0,0.5)]">
             <div>
               <span className="text-xs text-slate-500 uppercase tracking-wider block">SON SKOR</span>
               <span className="text-3xl font-bold font-display text-cyan-400">{score}</span>
@@ -4166,6 +4564,20 @@ export const SpaceDodgeGame: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-3.5 max-w-xs w-full">
+            {/* WATCH AD TO CONTINUE BUTTON */}
+            {!adContinueUsed && (
+              <button
+                onClick={handleAdContinue}
+                className="relative flex items-center justify-center gap-2 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 active:scale-95 text-white font-bold py-4 px-6 rounded-lg text-md tracking-wider font-display transition-all shadow-[0_0_20px_rgba(34,197,94,0.4)] animate-pulse"
+              >
+                <Tv className="w-5 h-5" />
+                <span className="flex flex-col items-start">
+                  <span className="text-sm">DEVAM ET</span>
+                  <span className="text-[9px] font-normal tracking-wide opacity-80">📺 Reklam İzle & Devam Et</span>
+                </span>
+              </button>
+            )}
+
             <button
               onClick={handleStartGame}
               className="flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-slate-950 font-bold py-3.5 px-6 rounded-lg text-md tracking-wider font-display transition-all shadow-[0_0_15px_rgba(6,182,212,0.3)]"

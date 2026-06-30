@@ -1,4 +1,4 @@
-package com.kaan.rocketsurvivor;
+package com.yorgun.rocketsurvivor;
 
 import com.getcapacitor.BridgeActivity;
 

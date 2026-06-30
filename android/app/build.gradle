@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.kaan.rocketsurvivor"
+    namespace = "com.yorgun.rocketsurvivor"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.kaan.rocketsurvivor"
+        applicationId "com.yorgun.rocketsurvivor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
