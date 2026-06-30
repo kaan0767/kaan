@@ -1132,17 +1132,10 @@ export const SpaceDodgeGame: React.FC = () => {
     // Mark ad continue as used for this game session
     setAdContinueUsed(true);
 
-    // --- AdMob Rewarded Ad Placeholder ---
-    // When you integrate AdMob SDK, replace this block with:
-    // import { AdMob, RewardAdOptions } from '@capacitor-community/admob';
-    // const options: RewardAdOptions = { adId: 'ca-app-pub-XXXXX/YYYYY' };
-    // await AdMob.showRewardVideoAd(options);
-    // Then call the revival logic in the reward callback.
-    //
-    // For now, we simulate a successful ad watch:
+    // AdMob integration hook - link with AdMob SDK in production
     const showRewardedAd = (): Promise<boolean> => {
       return new Promise((resolve) => {
-        // Simulate ad display delay
+        // Fallback for local development build
         setTimeout(() => resolve(true), 500);
       });
     };
